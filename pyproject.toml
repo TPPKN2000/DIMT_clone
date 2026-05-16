@@ -1,0 +1,41 @@
+[project]
+name = "dimt"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "evidently>=0.7.21",
+    "fastapi>=0.136.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+    "levenshtein>=0.27.3",
+    "mlflow>=3.11.1",
+    "peft==0.13.2",
+    "transformers==4.46.3",
+    "tokenizers==0.20.3",
+    "transformers-stream-generator>=0.0.5",
+    "protobuf==5.28.2",
+    "pymupdf==1.24.11",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.26",
+    "sqlalchemy>=2.0.0",
+    "streamlit>=1.56.0",
+    "torch",
+    "torchvision",
+    "uvicorn>=0.44.0",
+    "google-genai>=0.3.0",
+    "scikit-learn>=1.5.0",
+    "typst>=0.11.0",
+    "pymupdf-fonts>=1.0.5",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu118" }
+torchvision = { index = "pytorch-cu118" }
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
