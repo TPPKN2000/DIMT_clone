@@ -9,7 +9,7 @@ Key mechanisms:
 - Translates at paragraph level (not line-by-line) for coherent output
 - Tables: extracts translatable text from HTML, translates, reconstructs
 - LoRA adapter loaded from nllb-1.3B-multilingual-final/ with 4-bit quantization
-- Target languages: deu_Latn (German), fra_Latn (French)
+- Target languages: vie_Latn (Vietnamese), deu_Latn (German), fra_Latn (French)
 - Q7: Cross-page stitching — merges cross_page spans and splits back by word ratio
 - Q9: Batch translation — groups paragraphs into batches (max 512 tokens) for throughput
 """
@@ -45,9 +45,16 @@ BATCH_MAX_TOKENS = 512
 
 
 class NLLBService:
-    SUPPORTED_LANGS = ["deu_Latn", "fra_Latn"]
+    SUPPORTED_LANGS = ["vie_Latn", "deu_Latn", "fra_Latn"]
 
-    def __init__(self, device=None, tgt_lang: str = "fra_Latn",
+    # Human-readable display names for the frontend
+    LANG_DISPLAY = {
+        "vie_Latn": "Vietnamese (vie_Latn)",
+        "fra_Latn": "French (fra_Latn)",
+        "deu_Latn": "German (deu_Latn)",
+    }
+
+    def __init__(self, device=None, tgt_lang: str = "vie_Latn",
                  adapter_path: str = "nllb-1.3B-multilingual-final",
                  lazy_load: bool = False):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,12 +74,10 @@ class NLLBService:
         try:
             print(f"[NLLB] Loading {self.model_name} + LoRA adapter from {self.adapter_path}...")
 
-            # Load tokenizer from adapter dir (contains special tokens: [MATH_i], [CODE_i])
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.adapter_path, src_lang=self.src_lang
             )
 
-            # 4-bit NF4 quantization config (matching RunPod training baseline)
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_use_double_quant=True,
@@ -80,7 +85,6 @@ class NLLBService:
                 bnb_4bit_compute_dtype=torch.bfloat16 if self.device == "cuda" else torch.float16,
             )
 
-            # Load base model with quantization
             base_model = AutoModelForSeq2SeqLM.from_pretrained(
                 self.model_name,
                 quantization_config=bnb_config,
@@ -88,11 +92,9 @@ class NLLBService:
                 low_cpu_mem_usage=True,
             )
 
-            # Resize embeddings to padded multiple of 64 (required by bnb)
             padded = (len(self.tokenizer) + 63) // 64 * 64
             base_model.resize_token_embeddings(padded, mean_resizing=False)
 
-            # Attach LoRA adapter
             self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
             self.model.eval()
 
@@ -109,12 +111,12 @@ class NLLBService:
         self._load_event.wait()
 
     def set_target_lang(self, lang_code: str):
-        """Switch target language. Only deu_Latn and fra_Latn are supported."""
+        """Switch target language. Supports vie_Latn, deu_Latn, fra_Latn."""
         if lang_code not in self.SUPPORTED_LANGS:
             raise ValueError(f"Unsupported language: {lang_code}. Use one of {self.SUPPORTED_LANGS}")
         self.tgt_lang = lang_code
 
-    # ── Core translate ──────────────────────────────────────────
+    # ── Core translate ──────────────────────────────────────────────
 
     def _translate_text(self, text: str) -> str:
         """Translate a single string. Returns mock if model not loaded."""
@@ -126,7 +128,6 @@ class NLLBService:
         self.tokenizer.src_lang = self.src_lang
         self.tokenizer.tgt_lang = self.tgt_lang
 
-        # forced_bos_id = self.tokenizer.lang_code_to_id[self.tgt_lang]
         forced_bos_id = self.tokenizer.convert_tokens_to_ids(self.tgt_lang)
         inputs = self.tokenizer(
             text, return_tensors="pt", truncation=True, max_length=512
@@ -149,10 +150,8 @@ class NLLBService:
 
         self.tokenizer.src_lang = self.src_lang
         self.tokenizer.tgt_lang = self.tgt_lang
-        # forced_bos_id = self.tokenizer.lang_code_to_id[self.tgt_lang]
         forced_bos_id = self.tokenizer.convert_tokens_to_ids(self.tgt_lang)
 
-        # Batch encode
         inputs = self.tokenizer(
             texts, return_tensors="pt", truncation=True,
             max_length=512, padding=True
@@ -168,7 +167,7 @@ class NLLBService:
         results = self.tokenizer.batch_decode(out, skip_special_tokens=True)
         return [r.strip() for r in results]
 
-    # ── Paragraph extraction from layout.json ───────────────────
+    # ── Paragraph extraction from layout.json ───────────────────────
 
     def translate_middle_json(self, middle_data: dict) -> dict:
         """
@@ -186,11 +185,10 @@ class NLLBService:
         pages = translated.get("pdf_info", [])
         total_pages = len(pages)
 
-        # Q7: Cross-page stitching — collect cross_page spans and merge
+        # Q7: Cross-page stitching
         self._stitch_cross_page(pages)
 
-        # Collect all translatable paragraphs across all pages
-        all_jobs = []  # list of (chain, paragraph_text, eq_map)
+        all_jobs = []
 
         for pi, page in enumerate(pages):
             blocks = page.get("preproc_blocks", page.get("para_blocks", []))
@@ -199,13 +197,11 @@ class NLLBService:
             if (pi + 1) % 5 == 0 or pi == total_pages - 1:
                 print(f"[NLLB] Collected jobs from page {pi+1}/{total_pages} (total jobs: {len(all_jobs)})")
 
-        # Q9: Batch translate all collected paragraphs
+        # Q9: Batch translate
         if all_jobs:
             print(f"[NLLB] Translating {len(all_jobs)} paragraphs...")
             texts = [job[1] for job in all_jobs]
 
-            # Split into batches that fit within token limits
-            # Deduplicate texts to avoid re-translating identical headers/footers
             unique_texts = []
             text_to_idx = {}
             for text in texts:
@@ -218,9 +214,8 @@ class NLLBService:
             batch_tok_count = 0
 
             for utext in unique_texts:
-                tok_count = len(utext.split())  # rough token estimate
+                tok_count = len(utext.split())
                 if batch and batch_tok_count + tok_count > BATCH_MAX_TOKENS:
-                    # Translate current batch
                     translated_unique.extend(self._translate_batch(batch))
                     batch = []
                     batch_tok_count = 0
@@ -230,10 +225,8 @@ class NLLBService:
             if batch:
                 translated_unique.extend(self._translate_batch(batch))
 
-            # Map back to original list
             translated_texts = [translated_unique[text_to_idx[text]] for text in texts]
 
-            # Write back translated text
             for i, (chain, _, eq_map) in enumerate(all_jobs):
                 tr = self._restore_equations(translated_texts[i], eq_map)
                 self._write_back_translated(chain, tr)
@@ -241,7 +234,7 @@ class NLLBService:
             if (i + 1) % 50 == 0:
                     print(f"[NLLB] Written back {i+1}/{len(all_jobs)} translations")
 
-        # Translate tables separately (not batchable due to HTML structure)
+        # Translate tables separately
         for pi, page in enumerate(pages):
             blocks = page.get("preproc_blocks", page.get("para_blocks", []))
             for block in blocks:
@@ -253,13 +246,6 @@ class NLLBService:
         return translated
 
     def _is_quartet_text(self, obj) -> bool:
-        """
-        Check if an object satisfies the user-defined 'quartet' condition:
-        - has "bbox"
-        - "type" is "text"
-        - has "content"
-        - "score" is a float/int
-        """
         if not isinstance(obj, dict): return False
         return (
             "bbox" in obj and
@@ -269,12 +255,9 @@ class NLLBService:
         )
 
     def _contains_quartet_recursive(self, obj) -> bool:
-        """Recursively check if an object contains any 'quartet' text component."""
         if self._is_quartet_text(obj):
             return True
         if isinstance(obj, dict):
-            # Skip keys that are clearly not related to layout structure if needed, 
-            # but for safety we check everything.
             for v in obj.values():
                 if self._contains_quartet_recursive(v): return True
         elif isinstance(obj, list):
@@ -283,33 +266,27 @@ class NLLBService:
         return False
 
     def _collect_translation_jobs(self, blocks: list) -> list:
-        """Collect all translatable paragraphs recursively, strictly identifying text via the quartet rule."""
         jobs = []
         i = 0
         while i < len(blocks):
             block = blocks[i]
 
-            # Identify if this block or its descendants contain text via the quartet rule
             if self._contains_quartet_recursive(block) or block.get("lines"):
-                # Collect merge_prev chain (sibling level)
                 chain = [block]
                 j = i + 1
                 while j < len(blocks) and blocks[j].get("merge_prev") is True:
                     chain.append(blocks[j])
                     j += 1
 
-                # Extract paragraph text
                 paragraph, eq_map = self._extract_paragraph(chain)
                 if paragraph.strip():
                     jobs.append((chain, paragraph, eq_map))
-                
-                # Check for nested structures inside this block as well
+
                 if "blocks" in block:
                     jobs.extend(self._collect_translation_jobs(block["blocks"]))
-                
+
                 i = j
             elif "blocks" in block:
-                # Recurse into container blocks
                 jobs.extend(self._collect_translation_jobs(block["blocks"]))
                 i += 1
             else:
@@ -318,11 +295,7 @@ class NLLBService:
         return jobs
 
     def _stitch_cross_page(self, pages: list):
-        """
-        Q7: Cross-page stitching.
-        If a span has cross_page=True, merge it with the next page's first block.
-        After translation, split back proportionally by word count.
-        """
+        """Q7: Cross-page stitching."""
         for pi in range(len(pages) - 1):
             current_blocks = pages[pi].get("para_blocks", [])
             next_blocks = pages[pi + 1].get("para_blocks", [])
@@ -340,23 +313,16 @@ class NLLBService:
                     break
 
             if has_cross_page:
-                # Merge last block of current page into first block of next page
                 first_next = next_blocks[0]
                 merged_lines = last_block.get("lines", []) + first_next.get("lines", [])
                 first_next["lines"] = merged_lines
                 first_next["_cross_page_merged"] = True
                 first_next["_original_page_line_count"] = len(last_block.get("lines", []))
-                # Clear the cross-page block from the current page
                 last_block["lines"] = []
                 last_block["_merged_to_next"] = True
                 print(f"[NLLB] Cross-page stitch: page {pi} → page {pi+1}")
 
     def _extract_paragraph(self, block_chain: list) -> tuple:
-        """
-        Extract all text from a chain of blocks into one paragraph string.
-        Inline equations are replaced with [EQ_n] placeholders.
-        Returns (paragraph_text, {placeholder: original_latex}).
-        """
         parts = []
         eq_map = {}
         eq_idx = 0
@@ -364,7 +330,6 @@ class NLLBService:
         for block in block_chain:
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
-                    # Strictly follow the quartet rule to identify text content
                     if self._is_quartet_text(span):
                         parts.append(span["content"])
                     elif span.get("type") == "inline_equation":
@@ -372,13 +337,11 @@ class NLLBService:
                         eq_map[placeholder] = span.get("content", "")
                         parts.append(placeholder)
                         eq_idx += 1
-                    # interline_equation spans in text blocks are rare; protect them too
                     elif span.get("type") == "interline_equation":
                         placeholder = f"[EQ_{eq_idx}]"
                         eq_map[placeholder] = span.get("content", "")
                         parts.append(placeholder)
                         eq_idx += 1
-                # Add space between lines
                 parts.append(" ")
 
         return " ".join(parts).strip(), eq_map
@@ -389,18 +352,13 @@ class NLLBService:
         return text
 
     def _write_back_translated(self, chain: list, translated_text: str):
-        """
-        Chia lại text sau khi dịch (dựa trên tỉ lệ số từ gốc) và trả về ĐÚNG block của nó.
-        Không dồn thành 1 cục, không xóa block sau.
-        """
         translated_words = translated_text.split()
         if not translated_words:
             return
 
-        # 1. Tính toán sức chứa (tỉ lệ chữ) của từng block gốc
         block_word_counts = []
         total_orig_words = 0
-        
+
         for b in chain:
             b_words = 0
             for line in b.get("lines", []):
@@ -408,34 +366,26 @@ class NLLBService:
                     if self._is_quartet_text(span):
                         b_words += len(span.get("content", "").split())
 
-            # Critical guard:
-            # If MinerU created an empty merge_prev visual block,
-            # do not allow it to destroy the allocation.
             if b_words == 0 and b.get("merge_prev") is True:
                 b_words = 1
 
             block_word_counts.append(b_words)
             total_orig_words += b_words
-            
-        # 2. Cắt cục text dịch ra và trả về từng block
+
         word_idx = 0
         for i, b in enumerate(chain):
-            # Cắt bao nhiêu từ cho block này?
             if i == len(chain) - 1:
-                # Block cuối cùng ôm trọn phần text còn lại
                 block_words = translated_words[word_idx:]
             else:
                 ratio = block_word_counts[i] / total_orig_words
                 alloc_count = int(len(translated_words) * ratio)
                 block_words = translated_words[word_idx : word_idx + alloc_count]
                 word_idx += alloc_count
-                
+
             block_translated_text = " ".join(block_words)
-            
-            # 3. Ghi đè lại vào block hiện tại, GIỮ NGUYÊN BBOX CỦA NÓ
-            # Xóa sạch cờ _merged đi để renderer vẫn xử lý block này
+
             b.pop("_merged", None)
-            
+
             if block_translated_text:
                 b["lines"] = [{
                     "bbox": b.get("bbox", [0, 0, 0, 0]),
@@ -448,7 +398,6 @@ class NLLBService:
                     }]
                 }]
             else:
-                # Nếu text bị rỗng do làm tròn, giữ lại 1 dấu cách để renderer làm trắng vùng này
                 b["lines"] = [{
                     "bbox": b.get("bbox", [0, 0, 0, 0]),
                     "spans": [{
@@ -460,10 +409,9 @@ class NLLBService:
                     }]
                 }]
 
-    # ── Table translation ───────────────────────────────────────
+    # ── Table translation ────────────────────────────────────────────
 
     def _translate_table_block(self, block: dict):
-        """Extract text from table HTML, translate, reconstruct."""
         for sub in block.get("blocks", []):
             for line in sub.get("lines", []):
                 for span in line.get("spans", []):
@@ -471,13 +419,11 @@ class NLLBService:
                         span["html"] = self._translate_table_html(span["html"])
 
     def _translate_table_html(self, html: str) -> str:
-        """Translate text content within <td>/<th> cells, preserving <eq> tags."""
         def replace_cell(match):
-            tag = match.group(1)      # td or th with attributes
-            content = match.group(2)  # cell content
-            close = match.group(3)    # /td or /th
+            tag = match.group(1)
+            content = match.group(2)
+            close = match.group(3)
 
-            # Protect <eq>...</eq> tags
             eq_map = {}
             eq_idx = 0
             def protect_eq(m):
@@ -488,11 +434,9 @@ class NLLBService:
                 return key
             protected = re.sub(r"<eq>.*?</eq>", protect_eq, content)
 
-            # Only translate if there's actual text
             text_only = re.sub(r"<[^>]+>", "", protected).strip()
             if text_only:
                 translated = self._translate_text(protected)
-                # Restore equations
                 for k, v in eq_map.items():
                     translated = translated.replace(k, v)
                 return f"<{tag}>{translated}</{close}>"
@@ -505,10 +449,9 @@ class NLLBService:
             flags=re.DOTALL,
         )
 
-    # ── Markdown-level translation (for .md output) ─────────────
+    # ── Markdown-level translation ───────────────────────────────────
 
     def translate_markdown(self, md_content: str) -> str:
-        """Translate markdown content line-by-line to perfectly preserve structure."""
         lines = md_content.split("\n")
         total_lines = len(lines)
         translated_lines = []
@@ -518,7 +461,6 @@ class NLLBService:
             if not line.strip():
                 translated_lines.append("")
                 continue
-            # Skip lines that are pure math/code fences
             if line.strip().startswith("\\[") or line.strip().startswith("$$") or line.strip().startswith("```"):
                 translated_lines.append(line)
                 continue
