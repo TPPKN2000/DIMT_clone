@@ -1,0 +1,3646 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "PreP-OCR: A Complete Pipeline for Document Image Restoration and Enhanced OCR Accuracy "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                186,
+                90,
+                811,
+                130
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Shuhao Guan1, Moule Lin2, Cheng Xu1, Xinyi Liu1 Jinman Zhao3, Jiexin Fan2, Qi Xu4, Derek Greene1 "
+                    }
+                ]
+            },
+            "bbox": [
+                278,
+                145,
+                719,
+                179
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1University College Dublin, 2Trinity College Dublin 3University of Toronto, 4Shanghai University shuhao.guan@ucdconnect.ie, derek.greene@ucd.ie "
+                    }
+                ]
+            },
+            "bbox": [
+                273,
+                180,
+                729,
+                229
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Abstract "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                260,
+                260,
+                339,
+                275
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This paper introduces PreP-OCR, a two-stage pipeline that combines document image restoration with semantic-aware post-OCR correction to enhance both visual clarity and textual consistency, thereby improving text extraction from degraded historical documents. First, we synthesize document-image pairs from plaintext, rendering them with diverse fonts and layouts and then applying a randomly ordered set of degradation operations. An image restoration model is trained on this synthetic data, using multi-directional patch extraction and fusion to process large images. Second, a ByT5 post-OCR model, fine-tuned on synthetic historical text pairs, addresses remaining OCR errors. Detailed experiments on 13,831 pages of real historical documents in English, French, and Spanish show that the PreP-OCR pipeline reduces character error rates by 63.9-70.3% compared to OCR on raw images. Our pipeline demonstrates the potential of integrating image restoration with linguistic error correction for digitizing historical archives. https://github.com/NikoGuan/PreP-OCR "
+                    }
+                ]
+            },
+            "bbox": [
+                141,
+                292,
+                460,
+                634
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 Introduction "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                114,
+                651,
+                258,
+                665
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the era of massive document digitization, ensuring accurate text extraction from degraded images has become increasingly important (Shen et al., 2021). Many historical documents, scanned books, and archival materials suffer from various forms of degradation – such as blur, noise, ink bleeding, and other artifacts – due to aging and suboptimal scanning conditions (Pardo et al., 2024). These degradations not only affect the visual quality of the images, but can also severely impact the resulting performance of Optical Character Recognition (OCR) systems, leading to high error rates in extracted text (Hegghammer, 2022). "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                678,
+                489,
+                888
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address these challenges, this paper introduces PreP-OCR, a novel synthetic-data-driven two-stage pipeline that first restores degraded images for OCR-based text extraction and then enhances the extracted text through post-processing. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                889,
+                489,
+                921
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                507,
+                261,
+                884,
+                309
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To effectively train the image restoration model, we employ a comprehensive synthetic data generation method that simulates realistic document degradation. First, we render clean text images with diverse typography, then we apply degradation operations in a randomized order with stochastic parameters (see Section 4.2), yielding a richly varied dataset, allowing models to learn a robust mapping between the original degraded inputs and their clean counterparts. Additionally, we propose a multi-directional patch extraction and fusion strategy to efficiently process larger images and further enhance overall image quality (see Section 4.3). Figure 6 shows examples of the process. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                310,
+                884,
+                533
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Following image restoration, in the next step of our proposed pipeline the restored images are fed into an OCR system. Although restoration significantly reduces structural ambiguities, it may not fully eliminate OCR errors. To correct any residual recognition mistakes, we incorporate a ByT5 post-OCR correction module that semantically recovers errors, even in cases where images are severely degraded and challenging to fully restore (see Section 4.4). Consequently, the restoration stage primarily resolves ambiguities in character shapes, yielding more legible images that are easier for OCR systems to recognize, while the post-correction stage mitigates systematic OCR errors through sequence-to-sequence translation. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                535,
+                884,
+                775
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In Sections 4.1 and 5.1, we describe the collection of numerous degraded historical book images. These images were scanned using various OCR systems, and we then constructed evaluation datasets with their corresponding ground truth texts. In Sections 5.2–5.3, we use the data to assess text reconstruction quality in different patch regions and evaluate the effectiveness of our fusion strategy. Finally, in Sections 5.4–5.5, we test the PreP-OCR pipeline on English, French, and Spanish datasets. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                776,
+                885,
+                921
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15413 "
+                    }
+                ]
+            },
+            "bbox": [
+                475,
+                927,
+                524,
+                940
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 15413–15425 July 27 - August 1, 2025 ©2025 Association for Computational Linguistics "
+                    }
+                ]
+            },
+            "bbox": [
+                82,
+                945,
+                914,
+                972
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                112,
+                84,
+                487,
+                99
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 Related Work "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                114,
+                116,
+                270,
+                131
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Extensive research has demonstrated that image pre-processing can significantly improve the performance of deep learning models (Vidal and Amigo, 2012; Salvi et al., 2021). However, pre-processing within the context of OCR remains relatively underexplored, with existing methods primarily focusing on contrast enhancement and color adjustment (Gupta et al., 2007; Harraj and Raissouni, 2015; Bui et al., 2017). "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                143,
+                489,
+                288
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recent studies in image deblurring have introduced more advanced restoration techniques that could also benefit OCR. Early image restoration methods were primarily based on CNNs (Dong et al., 2015a,b; Zhang et al., 2017; Cho et al., 2021). Subsequent research introduced more elaborate architectures, such as residual blocks (Kim et al., 2016; Zhang et al., 2021), generative adversarial networks (GANs) (Pathak et al., 2016; Gulrajani et al., 2017; Wang et al., 2018; Kupyn et al., 2019), and attention mechanisms (Zhang et al., 2018; Yu et al., 2018). Transformers (Vaswani, 2017), which model long-range dependencies, have advanced NLP and computer vision and are now widely used in image restoration (Chen et al., 2021; Liang et al., 2021; Zamir et al., 2022). "
+                    }
+                ]
+            },
+            "bbox": [
+                115,
+                291,
+                489,
+                546
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diffusion models have emerged as a powerful alternative for generative image tasks, optimizing a parameterized Markov chain to approximate the target distribution more accurately than many other generative frameworks. Examples in restoration include DiffIR (Xia et al., 2023) and ResShift (Yue et al., 2024), both of which are diffusion-based approaches. Several studies have also used diffusion models together with textual information to recover the appearance of ancient stele inscriptions (Zhu et al., 2024; Yang et al., 2025). In our work, we harness image-restoration models to pre-process degraded images prior to applying OCR. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                550,
+                487,
+                759
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The post-OCR task aims to correct errors in OCR outputs, with early methods relying on dictionary lookups or spelling checkers (Furrer and Volk, 2011; Bassil and Alwani, 2012; Estrella and Paliza, 2014; Kettunen, 2016). More recent approaches treat post-OCR correction as a sequenceto-sequence task, leveraging neural machine translation (NMT) models, such as BERT (Devlin et al., 2019), BART (Lewis, 2019) and T5 (Raffel et al., 2020) (Amrhein and Clematide, 2018; Nguyen et al., 2020; Soper et al., 2021; Maheshwari et al., 2022). Several comparative studies have shown that byte-level models, such as ByT5 (Xue et al., 2022), often achieve the best performance for post-OCR tasks (Maheshwari et al., 2022; Löfgren and Dannélls, 2024; Guan et al., 2024; Guan and Greene, 2024b). "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                760,
+                489,
+                921
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                507,
+                84,
+                884,
+                196
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Both image restoration and post-OCR correction require paired training data, and the availability of abundant, high-quality data is critical for success (Rijhwani et al., 2020; Mazumder et al., 2024; Bi et al., 2025a). Consequently, researchers have explored a variety of strategies for generating synthetic data as a form of data augmentation (Hamdi et al., 2023; Shorten and Khoshgoftaar, 2019). For image deblurring and text-recognition, common techniques involve injecting noise into clean images to mimic real-world degradation (Yuan et al., 2007; Krishna et al., 2018; Rim et al., 2022; Li et al., 2023; Hamdi et al., 2023), or using methods such as StableDiffusion (Rombach et al., 2022) to create paired image edits (Brooks et al., 2023). In the post-OCR domain, synthetic training pairs are often produced by inserting controlled errors into clean text (D’hondt et al., 2017; Grundkiewicz et al., 2019; Ignat et al., 2022; Jasonarson et al., 2023; Guan and Greene, 2024a; Guan et al., 2024). "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                197,
+                885,
+                519
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 Problem Formulation "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                507,
+                530,
+                732,
+                544
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our task addresses two sequential objectives: (1) restoring degraded images to enhance legibility, and (2) recovering accurate textual content from these images. We formalize these goals as follows. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                552,
+                882,
+                618
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Image restoration objective. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "I _ { d } , I \\in \\mathbb { R } ^ { H \\times W }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the degraded input and its sharp groundtruth image, respectively. A restoration model aims to produce a restored image "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { I } = \\mathcal { R } ( I _ { d } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where the objective is to maximize the Peak-Signalto-Noise Ratio (PSNR) (Hore and Ziou, 2010) between "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { I }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and I, such that: "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                621,
+                885,
+                734
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {R} ^ {*} = \\arg \\max _ {\\mathcal {R}} \\operatorname{PSNR} (\\mathcal {R} (I _ {d}), I),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/aaa78e0d3e68f6b9b3a40318aad52a6c35f7bc1dce75120bb09cbb80417dd966.jpg"
+                }
+            },
+            "bbox": [
+                569,
+                741,
+                821,
+                765
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Text recovery objective. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T"
+                    },
+                    {
+                        "type": "text",
+                        "content": "represent the ground-truth text sequence of image "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "I _ { d } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The restored image "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { I }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is first processed by an OCR model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { O } } _ { : }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", yielding predicted text "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T ^ { \\prime } = \\mathcal { O } ( \\hat { I } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This predicted text "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is then refined by a post-processing module "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal P } _ { \\mathrm { { : } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", resulting in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { T } = \\mathcal { P } ( T ^ { \\prime } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). The objective here is to minimize the Character Error Rate (CER) between "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T \\colon"
+                    },
+                    {
+                        "type": "text",
+                        "content": ": "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                766,
+                884,
+                894
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {P} ^ {*} = \\arg \\min _ {\\mathcal {P}} \\operatorname{CER} (\\mathcal {P} (\\mathcal {O} (\\hat {I})), T),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/02d4828cfa34346a711042740225dba682872ec4d7faacbb5d7906cb7748f0a5.jpg"
+                }
+            },
+            "bbox": [
+                563,
+                900,
+                826,
+                923
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15414 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "These dual objectives are addressed in our twostage pipeline. First, the restoration model is optimized using synthetic paired data to restore the book images, directly enhancing character legibility (see Section 4.2). Second, the post-processor P is trained on synthetic training pairs simulating OCR errors to correct residual recognition mistakes (see Section 4.4). The image restoration stage reduces structural ambiguities in character shapes, while the text correction stage addresses systematic OCR errors through sequence-to-sequence translation. This cascaded approach ensures both pixellevel fidelity in ˆI and semantic-level accuracy in the final text output Tˆ. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                84,
+                492,
+                311
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 PreP Pipeline "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                112,
+                322,
+                268,
+                338
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 Real Evaluation Data Collection "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                112,
+                348,
+                413,
+                362
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To evaluate the performance of a model trained solely on synthetic data when applied to real-world data, we constructed a new corpus as follows. We curated a collection of 30 English books (9,606 pages), 5 Spanish books (2,404 pages), and 5 French books (1,821 pages) from the 15th to 19th centuries. Ground truth (GT) texts were sourced from clean digital books available on Project Gutenberg1, while a set of corresponding scanned PDF files containing degraded text images was obtained from Open Library2. We intentionally selected older books exhibiting visible damage, as shown in the images in Figure 1. Text alignment between the OCR outputs and GT was performed using the RETAS framework (Yalniz and Manmatha, 2011), which employs dynamic programming for robust sequence matching. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                369,
+                489,
+                644
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/4ede828675cce7111bf1ecfda874f7b430b718cfda501ccb0b73fdfb9e61af4f.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Example images of digitized pages from historical books, which are often affected by degraded text, aging pages, and low capture resolution. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                117,
+                655,
+                485,
+                750
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For subsequent experiments, we pre-process the images through denoising before employing OCR. Comparative CER analysis will be conducted across three pipelines: raw images (direct OCR on original scanned pages), Pre-process (OCR after image restoration), and our proposed approach PreP-process (image restoration combined with OCR and post-correction). "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                820,
+                487,
+                885
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                507,
+                84,
+                884,
+                149
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 Synthetic Data for Restoration "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                507,
+                159,
+                796,
+                174
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In image-to-image restoration tasks, paired data consisting of a degraded input and its corresponding clean reference is crucial for effective training. However, obtaining such paired data from real-world documents is extremely challenging because authentic clean images and their degraded counterparts are rarely available. To overcome this limitation, we employ a synthetic data generation approach that enables us to simulate realistic degradation from scratch. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                180,
+                884,
+                338
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our synthetic data pipeline begins by generating a clean base image from textual content. To maximize OCR accuracy, we ignore color information and work with grayscale images. First, we collect various fonts for different languages and render multi-line text with a range of stylistic variations, including random indentation, character shifts, rotation, and bending. Additionally, the text is randomly tilted, and both line and character spacing are varied to mimic the natural irregularities found in printed documents. The generated base image serves as the clean ground truth. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                342,
+                884,
+                533
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To simulate real-world degradations, next we apply a series of controlled noise and distortion operations. Specifically, the pipeline adds random noise, performs resolution reduction, applies Gaussian blurring, and overlays additional artifacts such as random black or white patches of varying sizes, white or black lines (simulating scratches or folds), background textures, and stain overlays. The process also includes random morphological operations (dilation and erosion) to further simulate text imperfections. It is worth noting that these operations are applied in random order, producing diverse results depending on the sequence. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                535,
+                882,
+                743
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Since noise levels can vary in real-world digitized documents, we predefine four noise levels (level-1 to level-4). Higher levels introduce a wider range of noise parameters, potentially resulting in more degraded images. Additionally, 10% of the noisy images are binarized using Otsu’s algorithm (Yousefi, 2011). We also stitch together images with different noise levels and fonts, as in real data, different regions on a given page can exhibit varying degrees of degradation and typographic styles. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                744,
+                882,
+                904
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The detailed parameters for generating the base image and simulating noise levels are provided in Appendix B. Example images generated using this process are shown in Figure 2. "
+                    }
+                ]
+            },
+            "bbox": [
+                527,
+                904,
+                880,
+                921
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "1https://www.gutenberg.org "
+                    }
+                ]
+            },
+            "bbox": [
+                134,
+                892,
+                334,
+                907
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "2https://openlibrary.org "
+                    }
+                ]
+            },
+            "bbox": [
+                136,
+                907,
+                319,
+                920
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15415 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/e7d90b8662359bdc6fbd89a5b6620ba83f7cdd397f3c2008290cd9fa7dbff313.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Example of three sets of synthetic image data. The leftmost image is the base image, while the image to its right is the corresponding degraded image. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                119,
+                80,
+                487,
+                186
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                112,
+                266,
+                487,
+                315
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "By pairing each original base image with its synthetically degraded versions, we create a large and diverse dataset. This synthetic data facilitates the robust training of our restoration model, allowing it to learn the complex mapping from degraded to clean images. As demonstrated later in Section 5, this can ultimately improve generalization performance in real-world document restoration tasks. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                316,
+                489,
+                444
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 Patch Extraction and Fusion "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                112,
+                461,
+                386,
+                475
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "When processing large images, we first partition them into multiple regions. To address stochastic noise and local inconsistencies, we adopt a multidirectional patch extraction strategy. Specifically, for each degraded image, we scan it four times: top-left to bottom-right, top-right to bottom-left, bottom-left to top-right, and bottom-right to topleft. Since image dimensions may not align perfectly with the patch stride, we pad only the edge opposite the scanning direction to ensure a fully integer-aligned pass over the entire image. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                483,
+                489,
+                659
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In each pass, 256×256 patches are extracted at a stride of 128 pixels. Scanning from different directions yields slightly different patches, meaning even the same region in the original image may appear with different neighboring contexts in a patch—leading to varied predictions. After restoring each patch, we discard the outer 64-pixel border and retain only the central 128×128 region, minimizing boundary artifacts. An example of the multi-direction patch extraction process is provided in Appendix A. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                662,
+                489,
+                839
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Each pixel in the final restored image is fused by aggregating four independent predictions from the four scanning directions. Specifically, for each scanning direction "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "k \\in \\{ 1 , 2 , 3 , 4 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the restoration model  generates an intermediate restored image "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { I } _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". To merge these predictions and reduce artifacts, we perform a pixel-wise median operation across the four resulting images. Formally, the final restored image ˆI is computed as "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                841,
+                487,
+                921
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/d2ca967860878bb73f3264928315a1f3e179e87417e8f39b7deadc4aa8c4a103.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: The left panel shows a real degraded patch. The four sub-panels in the center depict restored outputs under different scanning directions, where the red circles highlight localized artifacts or noise. On the right is the final fused result, in which these artifacts are effectively suppressed. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                510,
+                80,
+                882,
+                172
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                507,
+                288,
+                882,
+                355
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\hat {I} [ r, c, \\chi ] = \\mathrm{median} \\big (\\hat {I} _ {k} [ r, c, \\chi ] \\mid k \\in \\{1, 2, 3, 4 \\} \\big)",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/677a5f589cfcff2ef7d8eb25087e8576df3cd15adb9ea6ec4e94a01e8403c4f7.jpg"
+                }
+            },
+            "bbox": [
+                510,
+                363,
+                878,
+                384
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\chi"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the grayscale intensity, r and c are the row and column indices. This median operation consolidates the consistent pixel values across different scanning paths, improving the stability and quality of the final restored image. As shown in Figure 3, the median fusion suppresses outlier predictions caused by artifacts and stochastic noise. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                391,
+                882,
+                502
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our multi-directional scanning strategy aggregates predictions from overlapping patches processed through varied spatial contexts, analogous to multi-view consensus mechanisms in image processing. This approach enhances OCR outputs, as demonstrated later in Section 5.3. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                504,
+                882,
+                600
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 Post-OCR Correction "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                507,
+                611,
+                726,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Building on the image restoration pipeline described in Sections 4.2–4.3, our pipeline incorporates a post-processor to address residual OCR errors. While the pre-processing stage enhances text legibility, characteristic OCR mistakes persist due to (1) morphological ambiguities in restored characters, and (2) linguistic context gaps in OCR engines. To mitigate these, we implement an error correction module based on Guan et al. (2024)’s synthetic data approach, adapted to our pre-processing outputs. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                631,
+                884,
+                791
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We first extract the OCR error distribution from a small post-OCR dataset – the ICDAR 2017 post-OCR data (Chiron et al., 2017). Then, we inject errors into clean text to generate a large-scale synthetic training pair "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( T , T ^ { \\prime } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the ByT5-base model (Xue et al., 2022) "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { P }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is then trained to map "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to T , leveraging byte-level tokenization to handle rare characters from historical documents. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                793,
+                882,
+                920
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15416 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Specifically, we simulate OCR errors by replacing characters in the clean text T according to error distributions derived from the ICDAR. For example, the letter “m” might have an error set such as {\"n\": 0.001, \"rn\": 0.002, . . . }, where each error candidate is assigned an occurrence probability. These error sets may include various symbols, spaces, multi-character sequences, and the placeholder “@”. We uniformly adjust the overall error rate so that, as the error rate increases, characters are more likely to be replaced by an erroneous element, leading to a higher CER. After the replacement process, any placeholders are removed from the text. This procedure can simulate recognition, insertion, deletion, and segmentation errors. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                84,
+                489,
+                325
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This design complements our image restoration stage: while Section 4.3’s fusion reduces local artifacts, the post-processor resolves systemic OCR errors through learned linguistic patterns. The combined PreP-OCR pipeline thus addresses both visual ambiguities (via ) and semantic inconsistencies (via ), as we observe later in Section 5.4. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                326,
+                489,
+                438
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 Experiments "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                112,
+                451,
+                260,
+                469
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 Exp. 1: OCR Performance "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                112,
+                480,
+                369,
+                495
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In our first experiment, we evaluate OCR performance on the real book dataset described in Section 4.1. While Tesseract has been the most widely used OCR engine (Smith, 2007), recent advances in Transformer-based models have led to the emergence of general-purpose large language models (LLMs) with strong visual capabilities (Xu et al., 2024; Bi et al., 2025b,c; Yu et al., 2025; Chen et al., 2025), as well as specialized LLMs for OCR. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                501,
+                489,
+                645
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For baseline evaluation, we employ three OCR systems: Tesseract-5.5.0 (Smith, 2007); GOT (Wei et al., 2024), a LLM designed for OCR tasks; and GPT-4o-2024-08-06 (OpenAI, 2024). Details are provided in Appendix C. We used the RETAS framework (Yalniz and Manmatha, 2011) to align the OCR outputs with the GT text. After alignment, we computed the Character Error Rate (CER) and Word Error Rate (WER) to assess each system’s accuracy. Since text extracted from PDFs often contains extraneous content that is not part of the main body, any text segments that do not have a corresponding match in the GT were discarded and excluded from the CER calculation. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                646,
+                487,
+                871
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 1 shows the final results. We observe that the LLM-based OCR systems are less stable than Tesseract, often producing outliers characterized by incomplete page outputs or extraneous content. However, after removing these outlier pages (i.e., CER >25%), GPT-4o performs very well. In contrast, GOT remains unstable and does not exhibit outstanding performance even after outlier removal. Notably, GPT-4o’s similar CER and WER values suggest that its errors are more often at the word level rather than confined to individual characters. Further analysis of the CER distribution for English and additional details are provided in Section 5.4. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                873,
+                487,
+                921
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/d790bb6e77c285017062bd5f814299919a319cc196be71b100ae513887ecf07c.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Character Error Rate (CER) and Word Error Rate (WER) across Languages and Models, the values in parentheses are the results obtained after removing abnormal pages with a CER greater than 25%. Boldface indicates the best performance in each metric for each language. "
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"2\">English</td><td colspan=\"2\">French</td><td colspan=\"2\">Spanish</td></tr><tr><td>CER</td><td>WER</td><td>CER</td><td>WER</td><td>CER</td><td>WER</td></tr><tr><td>Tesseract</td><td>5.91 (5.91)</td><td>26.70 (26.70)</td><td>5.16 (5.11)</td><td>27.21 (26.97)</td><td>7.12 (7.12)</td><td>27.13 (27.13)</td></tr><tr><td>GOT</td><td>11.18 (6.95)</td><td>35.12 (20.29)</td><td>6.32 (5.15)</td><td>28.53 (25.43)</td><td>12.84 (6.29)</td><td>46.10 (24.32)</td></tr><tr><td>GPT-4o</td><td>6.51 (2.34)</td><td>9.37 (3.43)</td><td>3.23 (1.93)</td><td>4.98 (4.68)</td><td>3.43 (1.84)</td><td>5.42(2.00)</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                512,
+                82,
+                882,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                507,
+                255,
+                884,
+                416
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 Exp. 2: Patch Restoration Assessment "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                507,
+                430,
+                853,
+                445
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this experiment, we train and evaluate six imageto-image models on synthetic data generated according to Section 4.2: ResShift (Yue et al., 2024), DeblurGAN-v2 (Kupyn et al., 2019), MIMO-UNet+ (Cho et al., 2021), DiffIR (Xia et al., 2023), Restormer (Zamir et al., 2022), and IP2P (Brooks et al., 2023). We created a total of 100,000 image pairs, of which 90,000 are used for training, 5,000 for validation, and 5,000 for testing. Each model is trained on randomly cropped 256  256 patches from the training set, training parameters are in Appendix D. For testing, we extract two fixed 256  256 patches from each test image to ensure a uniform and controlled comparison across models. Note that this experiment assesses only the patch-wise performance. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                451,
+                882,
+                709
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our main evaluation on real data focuses on OCR outputs, discussed later in Section 5.3. However, to directly assess how well these models reconstruct text regions and how border removal impacts performance, we use the synthetic test set and compute the Aggregated Masked PSNR (AMP). Specifically, we apply Otsu’s thresholding to both the ground-truth and the predicted patches to identify black text pixels, and then take the union of the two resulting masks to obtain "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { M } _ { U }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For each "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x , y ) \\in \\mathcal { M } _ { U }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                711,
+                884,
+                888
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "E (x, y) = \\left(I (x, y) - \\hat {I} (x, y)\\right) ^ {2}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8a3589fe9f94dcfa52a36b9f35b5c3e4a35e293c84e012000318fc49ff178068.jpg"
+                }
+            },
+            "bbox": [
+                564,
+                901,
+                826,
+                923
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15417 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "If "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E ( x , y ) = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we assign 100 dB; otherwise, "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                84,
+                450,
+                99
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\operatorname{PSNR} (x, y) = 1 0 \\log_ {1 0} \\left(\\frac {2 5 5 ^ {2}}{E (x , y)}\\right).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/7622cd71b717bfe1285fd78a187fa8c48f307ab36f77be7584a19609010e6202.jpg"
+                }
+            },
+            "bbox": [
+                168,
+                109,
+                430,
+                137
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This masking step excludes large uniform background regions so that the PSNR focuses on text fidelity. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                145,
+                487,
+                192
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We accumulate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { P S N R } ( x , y )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for every pixel "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x , y ) \\in \\mathcal { M } _ { U }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "across all test images, normalize by the number of times "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x , y )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "lies in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { M } _ { U }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This yields an average map "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overline { { \\mathrm { P S N R } } } ( x , y )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where each pixel’s value reflects its average PSNR across all relevant test patches’ text region. If "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { P S N R } _ { i } ( x , y )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the local PSNR for pixel "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x , y )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the i-th image, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n ( x , y )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the count of images where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x , y ) \\in \\mathcal { M } _ { U } ;"
+                    }
+                ]
+            },
+            "bbox": [
+                110,
+                193,
+                487,
+                338
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\overline {{\\mathrm{PSNR}}} (x, y) = \\frac {1}{n (x , y)} \\sum_ {i = 1} ^ {n (x, y)} \\mathrm{PSNR} _ {i} (x, y).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/91b90718742d5d01bc4d7e09e0adf22e3f0f3635bd8ac9964c5be2f25f9c1983.jpg"
+                }
+            },
+            "bbox": [
+                132,
+                349,
+                467,
+                394
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Finally, we compute AMP by taking the average of all pixel values in the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overline { { \\mathrm { P S N R } } } ( x , y )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ": "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                401,
+                487,
+                435
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{AMP} = \\frac {1}{| \\Omega |} \\sum_ {(x, y) \\in \\Omega} \\overline {{\\mathrm{PSNR}}} (x, y),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f978adea89546505c72b983dc03b8b24274085c09d651a854b6a5cbcadb82206.jpg"
+                }
+            },
+            "bbox": [
+                169,
+                445,
+                428,
+                485
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where Ω is the set of all pixels in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overline { { \\mathrm { P S N R } } } ( x , y )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                492,
+                457,
+                508
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 2 reports the AMP results and indicates that DiffIR achieves the highest AMP on full images (25.64 dB), while ResShift performs well in the central subregions (26.58 dB, 26.82 dB). IP2P consistently underperforms. Figure 4 visualizes the PSNR. The results indicate that the central regions generally achieve higher PSNR values compared to the border areas. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                508,
+                487,
+                634
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/cef6234ec3d5e4e049d6a6097bcdde66024f5aee09265bb95b73abc0ecfacccf.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: AMP results for each restoration method, evaluated on the full "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 5 6 \\times 2 5 6"
+                    },
+                    {
+                        "type": "text",
+                        "content": "patch and two central subregions "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 1 9 2 \\times 1 9 2 , 1 2 8 \\times 1 2 8 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Boldface highlights the best performance. Underlining indicates the best performance in each row. "
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"3\">AMP ↑ (dB)</td></tr><tr><td>Full Patch</td><td>Central-192</td><td>Central-128</td></tr><tr><td>ResShift</td><td>25.18</td><td>26.58</td><td>26.82</td></tr><tr><td>DeblurGAN-v2</td><td>22.81</td><td>23.56</td><td>23.56</td></tr><tr><td>MIMO-UNet+</td><td>24.08</td><td>25.26</td><td>25.40</td></tr><tr><td>DiffIR</td><td>25.64</td><td>26.29</td><td>26.50</td></tr><tr><td>Restormer</td><td>24.13</td><td>25.29</td><td>25.18</td></tr><tr><td>IP2P</td><td>17.14</td><td>17.29</td><td>17.35</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                115,
+                645,
+                485,
+                759
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.3 Exp. 3: Full-Page Restoration "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                112,
+                868,
+                394,
+                884
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Building on the synthetic-data evaluations in Experiment 2, we now investigate how reconstructed real historical images affect OCR performance. We also examine how Multi-Directional Patch Extraction combined with different fusion methods influences performance. Here, Tesseract is chosen for its stability; on the raw book images, it achieves a baseline CER of 5.91%. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                889,
+                487,
+                921
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/1209c60c7bebd2afd33f67081b709bd815c1520914bf23efd74aba8959bb6be0.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Visualization of PSNR for selected methods. The blue boxes highlight different regions within the images. Central regions tend to exhibit higher PSNR. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                514,
+                82,
+                882,
+                237
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                507,
+                338,
+                882,
+                434
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We resize each real degraded image "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "I _ { d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to a width of 1216 pixels for consistency. Each model is tested under several configurations: Single-directional patch extraction (with 0, 32, or 64 pixels removed from each border) and multi-directional patch extraction using either median or mean fusion, again with 0, 32, or 64 border pixels removed. Table 3 shows the resulting CER for each configuration. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                447,
+                882,
+                576
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "From the results in Table 3, we observe that median fusion generally outperforms mean fusion, while fusing multiple patches yields lower CER than using a single patch. Removing border pixels significantly improves performance, with 32- pixel removal already yielding a large gain and 64-pixel removal providing a modest further improvement. Under the Multi-Median-64 setting, ResShift achieves the best results, reducing the average CER by 52.45% across 30 English books. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                588,
+                884,
+                749
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For the ResShift model, although truncating 64 pixels from each border of a "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 2 4 \\times 1 0 2 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": "image requires processing 64 patches in single-direction (11.3 seconds total) and 256 patches in multidirection (45 seconds) on an RTX 4090, compared to 36 and 144 patches (6.36 and 25.46 seconds) for a 32-pixel truncation, the accuracy gain with Multi-Median-64 justifies the increased inference time. Consequently, we adopt Multi-Median-64 for our remaining experiments. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                760,
+                882,
+                921
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15418 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/07021484fb7b0fe3aceed3cd764917283239eba0e79f49fadf19723bf4fe34f1.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Character Error Rate (CER%) across models and configurations. “Single-X” indicates a single-directional patch extraction with X pixels removed from each border; “Multi-Median-X” and \"Multi-Mean-X” indicate multidirectional fusion (median or mean, respectively). Boldface highlights the best performance in each column. Underlining indicates the best performance in each row. "
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"9\">Configuration</td></tr><tr><td>Single-0</td><td>Single-32</td><td>Single-64</td><td>Multi-Median-0</td><td>Multi-Median-32</td><td>Multi-Median-64</td><td>Multi-Mean-0</td><td>Multi-Mean-32</td><td>Multi-Mean-64</td></tr><tr><td>ResShift</td><td>4.43</td><td>3.20</td><td>3.17</td><td>4.10</td><td>2.95</td><td>2.81</td><td>4.25</td><td>2.93</td><td>2.99</td></tr><tr><td>DeblurGAN-v2</td><td>5.82</td><td>4.75</td><td>4.63</td><td>5.12</td><td>4.52</td><td>4.48</td><td>5.34</td><td>4.78</td><td>4.65</td></tr><tr><td>MIMO-UNet+</td><td>4.65</td><td>3.89</td><td>3.70</td><td>4.22</td><td>3.68</td><td>3.65</td><td>4.41</td><td>3.82</td><td>3.77</td></tr><tr><td>DiffIR</td><td>3.77</td><td>3.22</td><td>3.12</td><td>3.63</td><td>3.10</td><td>2.94</td><td>3.52</td><td>3.23</td><td>2.91</td></tr><tr><td>Restormer</td><td>4.78</td><td>3.95</td><td>3.82</td><td>4.35</td><td>3.72</td><td>3.68</td><td>4.58</td><td>3.88</td><td>3.60</td></tr><tr><td>IP2P</td><td>54.35</td><td>59.42</td><td>49.28</td><td>46.01</td><td>39.25</td><td>48.03</td><td>47.02</td><td>46.48</td><td>46.32</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                115,
+                82,
+                878,
+                177
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/8b665fb72da617ace881564fcd0e9ed5f0f3e9d89ce60bb40301bcbdc1d79087.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: CER of Tesseract, GOT, and GPT-4o under three pipelines: Raw (original images), Pre (ResShift pre-processing), and PreP (ResShift pre-processing + post-correction). Parentheses show CER after excluding outliers (i.e., pages where CER > 25%). Boldface highlights the best performance in each column. Underlining indicates the best performance in each row. "
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">OCR Model</td><td colspan=\"3\">Pipeline</td></tr><tr><td>Raw</td><td>Pre</td><td>PreP</td></tr><tr><td>Tesseract</td><td>5.91 (5.87)</td><td>2.81 (1.99)</td><td>2.00 (1.30)</td></tr><tr><td>GOT</td><td>11.18 (6.95)</td><td>7.11 (3.00)</td><td>6.65 (2.65)</td></tr><tr><td>GPT-4o</td><td>6.51 (2.34)</td><td>6.06 (2.20)</td><td>6.57 (2.40)</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                127,
+                266,
+                475,
+                353
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.4 Exp. 4: PreP-OCR Pipeline "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                112,
+                491,
+                374,
+                507
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We now evaluate the complete PreP-OCR pipeline (image pre-processing, OCR, and post-processing) on real English book images. We investigate each step (i.e., pre-processing alone, and pre-processing combined with post-OCR correction) using the three OCR systems introduced in Section 5.1. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                514,
+                487,
+                609
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We selected 50 nineteenth-century British and Irish novels from Project Gutenberg, comprising 5,714,139 words. From these texts, we generated 894,271 synthetic training pairs (each up to 512 characters) to train the ByT5 post-correction model (see Appendix E for training details). The results are summarized in Table 4, and Figure 5 visualizes the Character Error Rate (CER) across books for each pipeline configuration. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                613,
+                485,
+                758
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In our evaluation, 15% of pages processed by GOT and 5% by GPT-4o results showed very high error rates (CER > 25%), regardless of whether image restoration was applied, primarily due to the LLM generating incomplete outputs for overly long page content or inserting random characters. Table 4 presents results both including and excluding these outliers. To assess the typical performance of the LLM, we focus our analysis on pages with CER 25%. Among these, GPT-4o outperforms the other models on raw images, achieving a mean CER of 2.34% compared to 5.87% for Tesseract and 6.95% for GOT. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                760,
+                487,
+                921
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/2ebceb498c33435cd413ae2535f15b46bed10fddbb25c75a865cfeb21fd65075.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: CER values for each book in the real dataset under different processing pipelines for 3 OCR systems. The green line indicates a decrease in CER, while the red line indicates an increase. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                514,
+                268,
+                877,
+                437
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                507,
+                533,
+                882,
+                580
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "After image restoration, all three models show improved accuracy. Tesseract’s CER drops significantly from 5.87% to 1.99%, whereas GPT-4o’s decreases from 2.34% to 2.20%. A small subset of pages sees higher CER after image restoration due to specific factors such as ink bleeding from the opposite page or unusual font styles (see Figure 9 in the Appendix for examples). "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                583,
+                882,
+                709
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "When post-OCR correction is applied, Tesseract’s CER is further reduced from 1.99% to 1.30%. Overall, 69.12% of text segments experience a CER decrease, 24.26% remain unchanged, and 6.62% increase. The GOT model also benefits slightly from post-correction. However, GPT-4o’s CER generally increases at this stage. This outcome stems from GPT-4o’s tendency to produce contextually plausible but factually incorrect hallucinations (Yang et al., 2024), which often evade detection by the correction model due to the absence of clear spelling or grammatical errors. As a result, these inaccuracies can propagate through digitization pipelines, remaining undetected in the final output. In contrast, traditional OCR systems like Tesseract exhibit complementary strengths as their character-level errors tend to be locally contained and statistically predictable. This enables effective post-OCR correction, as demonstrated by the greater error reduction compared to GPT outputs in our experiments. Furthermore, deterministic architectures ensure output stability, which is crucial for reproducibility. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                712,
+                884,
+                921
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15419 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/590b8933dbada3640e5b578fa5f02e2b70fe1edf9689e1ebec0eaaa4152b81d2.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 6: Please zoom in for closer inspection. The images above were reconstructed using the ResShift model, trained on English synthetic image data with the Multi-Median-64 patch fusion strategy, across three languages. Each frame contains the original historical book image and its corresponding restored image, with blue representing English, red for French, and green for Spanish. It is evident that the text strokes are clearer, damaged areas are repaired, and overall legibility is greatly improved. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                117,
+                82,
+                884,
+                290
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                112,
+                395,
+                489,
+                556
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.5 Exp. 5: Latin-Script Generalization "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                112,
+                573,
+                440,
+                589
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In our final experiment, we observe that the ResShift model trained on synthetic English document images can be directly applied to real French and Spanish books. Figure 6 shows restoration samples for all languages. Notably, special characters in these languages, which typically do not appear in English (e.g., diacritics), are often processed correctly. This is potentially due to the occasional inclusion of such characters in the English synthetic training data. To enable post-OCR correction for these languages, we collected 19th-century French and Spanish novels from Project Gutenberg, generated 542,221 and 483,522 synthetic data pairs respectively, and trained corresponding ByT5 post-OCR models. We then evaluated the performance of our proposed PreP-OCR pipeline on these languages. Results for each unique language and pipeline combination are given in Table 5. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                598,
+                489,
+                887
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The cross-lingual evaluation demonstrates that our English-trained ResShift model effectively gen-"
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                889,
+                489,
+                921
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/8eb516955b58b52b4889543e41141e010b15c51eb4b72b3a168648e07b45a843.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Character Error Rate (CER%) comparison using Tesseract OCR with ResShift pre-processing and ByT5 post-processing. Parentheses show CER after excluding outlier pages (CER > 25%). Underlined highlights the best performance in each row. "
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Language</td><td colspan=\"3\">Pipeline</td></tr><tr><td>Raw</td><td>Pre</td><td>PreP</td></tr><tr><td>English</td><td>5.91 (5.87)</td><td>2.81 (1.99)</td><td>2.00 (1.30)</td></tr><tr><td>French</td><td>5.16 (5.11)</td><td>2.89 (2.89)</td><td>1.53 (1.53)</td></tr><tr><td>Spanish</td><td>7.12 (7.12)</td><td>3.42 (3.42)</td><td>2.57 (2.57)</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                522,
+                393,
+                870,
+                485
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "eralizes to French and Spanish documents, reducing CER by 44.0% (5.16%→2.89%) and 52.0% (7.12%→3.42%) respectively without languagespecific tuning. Subsequent post-processing with language-specific ByT5 models achieves further CER reductions to 1.53% for French and 2.57% for Spanish. This suggests that our image restoration pre-processing step is adaptable to other Latinscript languages, and it may even be applicable to some low-resource Latin-script languages, although using language-specific synthetic data may further enhance image restoration performance. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                592,
+                884,
+                785
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 Conclusion "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                507,
+                797,
+                640,
+                813
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper we proposed PreP-OCR, a syntheticdata-driven pipeline that restores images and improves text extraction from degraded historical documents. A key component of this work is the introduction of a synthetic data generation method that simulates realistic document degradations and typographic variations. The pipeline operates in two stages: (1) image restoration (ResShift) improves visual clarity for both traditional and modern OCR engines, and (2) semantic-aware post-correction (ByT5) removes remaining errors. Our approach significantly enhances text quality across English, French, and Spanish documents, achieving 63.9- 70.3% CER reduction compared to raw OCR outputs. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                825,
+                884,
+                921
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15420 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                112,
+                84,
+                492,
+                231
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Limitations "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                114,
+                242,
+                220,
+                256
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While we demonstrate cross-lingual generalization across Latin scripts, performance on non-Latin writing systems (e.g., Cyrillic, Arabic, or East Asian scripts) remains untested. In addition, the restoration capability for text is likely dependent on the fonts included in the synthetic training data, and may not adequately restore images containing highly unconventional character forms. Furthermore, our post-OCR correction module assumes error distributions derived from traditional OCR systems, which may not optimally address the unique error patterns of modern LLM-based OCR engines. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                267,
+                489,
+                461
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Acknowledgments "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                114,
+                473,
+                278,
+                489
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This publication is part of a project that has received funding from (i) the European Research Council (ERC) under the Horizon 2020 research and innovation programme (Grant agreement No. 884951); (ii) Science Foundation Ireland (SFI) to the Insight Centre for Data Analytics under grant No 12/RC/2289_P2. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                499,
+                489,
+                612
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "References "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                114,
+                639,
+                213,
+                653
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Chantal Amrhein and Simon Clematide. 2018. Supervised OCR error detection and correction using statistical and neural machine translation methods. Journal for Language Technology and Computational Linguistics (JLCL), 33(1):49–76. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Youssef Bassil and Mohammad Alwani. 2012. OCR post-processing error correction algorithm using google online spelling suggestion. arXiv preprint arXiv:1204.0191. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jinhe Bi, Yifan Wang, Danqi Yan, Xun Xiao, Artur Hecker, Volker Tresp, and Yunpu Ma. 2025a. Prism: Self-pruning intrinsic selection method for trainingfree multimodal data selection. arXiv preprint arXiv:2502.12119. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jinhe Bi, Yujun Wang, Haokun Chen, Xun Xiao, Artur Hecker, Volker Tresp, and Yunpu Ma. 2025b. Llava steering: Visual instruction tuning with 500x fewer "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                115,
+                662,
+                489,
+                921
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "parameters through modality linear representationsteering. arXiv preprint arXiv:2412.12359. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jinhe Bi, Danqi Yan, Yifan Wang, Wenke Huang, Haokun Chen, Guancheng Wan, Mang Ye, Xun Xiao, Hinrich Schuetze, Volker Tresp, and Yunpu Ma. 2025c. Cot-kinetics: A theoretical modeling assessing lrm reasoning process. arXiv preprint arXiv:2505.13408. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Tim Brooks, Aleksander Holynski, and Alexei A Efros. 2023. Instructpix2pix: Learning to follow image editing instructions. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 18392–18402. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Quang Anh Bui, David Mollard, and Salvatore Tabbone. 2017. Selecting automatically pre-processing methods to improve OCR performances. In 2017 14th IAPR International Conference on Document Analysis and Recognition (ICDAR), volume 1, pages 169–174. IEEE. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Guoxin Chen, Minpeng Liao, Peiying Yu, Dingmin Wang, Zile Qiao, Chao Yang, Xin Zhao, and Kai Fan. 2025. C-3po: Compact plug-and-play proxy optimization to achieve human-like retrieval-augmented generation. arXiv preprint arXiv:2502.06205. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Hanting Chen, Yunhe Wang, Tianyu Guo, Chang Xu, Yiping Deng, Zhenhua Liu, Siwei Ma, Chunjing Xu, Chao Xu, and Wen Gao. 2021. Pre-trained image processing transformer. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 12299–12310. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Guillaume Chiron, Antoine Doucet, Mickaël Coustaty, and Jean-Philippe Moreux. 2017. ICDAR2017 competition on post-OCR text correction. In Proceedings of the 14th IAPR International Conference on Document Analysis and Recognition (ICDAR’17), volume 1, pages 1423–1428. IEEE. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Sung-Jin Cho, Seo-Won Ji, Jun-Pyo Hong, Seung-Won Jung, and Sung-Jea Ko. 2021. Rethinking coarse-to-fine approach in single image deblurring. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 4641–4650. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT: pre-training of deep bidirectional transformers for language understanding. arXiv preprint arXiv:1810.04805. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Eva D’hondt, Cyril Grouin, and Brigitte Grau. 2017. Generating a training corpus for OCR post-correction using encoder-decoder model. In Proceedings of the Eighth International Joint Conference on Natural Language Processing (Volume 1: Long Papers), pages 1006–1014. Asian Federation of Natural Language Processing. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Chao Dong, Yubin Deng, Chen Change Loy, and Xiaoou Tang. 2015a. Compression artifacts reduction by a deep convolutional network. In Proceedings of the IEEE International Conference on Computer Vision, pages 576–584. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                85,
+                884,
+                921
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15421 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                522,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Chao Dong, Chen Change Loy, Kaiming He, and Xiaoou Tang. 2015b. Image super-resolution using deep convolutional networks. IEEE Transactions on Pattern Analysis and Machine Intelligence, 38(2):295–307. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Paula Estrella and Pablo Paliza. 2014. OCR correction of documents generated during Argentina’s national reorganization process. In Proceedings of the First International Conference on Digital Access to Textual Cultural Heritage, pages 119–123. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Lenz Furrer and Martin Volk. 2011. Reducing OCR errors in Gothic-script documents. In Proceedings of the Workshop on Language Technologies for Digital Humanities and Cultural Heritage, pages 97–103. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Roman Grundkiewicz, Marcin Junczys-Dowmuntz, and Kenneth Heafield. 2019. Neural grammatical error correction systems with unsupervised pre-training on synthetic data. In 14th Workshop on Innovative Use of NLP for Building Educational Applications, pages 252–263. Association for Computational Linguistics. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shuhao Guan and Derek Greene. 2024a. Advancing post-OCR correction: A comparative study of synthetic data. In Findings of the Association for Computational Linguistics: ACL 2024, pages 6036– 6047. Association for Computational Linguistics. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shuhao Guan and Derek Greene. 2024b. Synthetically augmented self-supervised fine-tuning for diverse text ocr correction. In ECAI 2024, pages 898–905. IOS Press. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shuhao Guan, Cheng Xu, Moule Lin, and Derek Greene. 2024. Effective synthetic data and test-time adaptation for OCR correction. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing, pages 15412–15425. Association for Computational Linguistics. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ishaan Gulrajani, Faruk Ahmed, Martin Arjovsky, Vincent Dumoulin, and Aaron C Courville. 2017. Improved Training of Wasserstein GANs. Advances in Neural Information Processing Systems, 30. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Maya R Gupta, Nathaniel P Jacobson, and Eric K Garcia. 2007. OCR binarization and image pre-processing for searching historical documents. Pattern Recognition, 40(2):389–397. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ahmed Hamdi, Elvys Linhares Pontes, Nicolas Sidere, Mickaël Coustaty, and Antoine Doucet. 2023. Indepth analysis of the impact of OCR errors on named entity recognition and linking. Natural Language Engineering, 29(2):425–448. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Abdeslam El Harraj and Naoufal Raissouni. 2015. OCR accuracy improvement on document images through a novel pre-processing approach. arXiv preprint arXiv:1509.03456. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                107,
+                80,
+                495,
+                925
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Thomas Hegghammer. 2022. OCR with Tesseract, Amazon Textract, and Google Document AI: a benchmarking experiment. Journal of Computational Social Science, 5(1):861–882. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Alain Hore and Djemel Ziou. 2010. Image quality metrics: PSNR vs. SSIM. In Proceedings of the 20th International Conference on Pattern Recognition, pages 2366–2369. IEEE. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Oana Ignat, Jean Maillard, Vishrav Chaudhary, and Francisco Guzmán. 2022. OCR improves machine translation for low-resource languages. arXiv preprint arXiv:2202.13274. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Atli Jasonarson, Steinþór Steingrímsson, Einar Sigurðsson, Árni Magnússon, and Finnur Ingimundarson. 2023. Generating errors: OCR postprocessing for Icelandic. In Proceedings of the 24th Nordic Conference on Computational Linguistics (NoDaLiDa), pages 286–291. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kimmo Kettunen. 2016. Keep, change or delete? Setting up a low resource OCR post-correction framework for a digitized old finnish newspaper collection. In Digital Libraries on the Move: 11th Italian Research Conference on Digital Libraries (IRCDL’15), Revised Selected Papers 11, pages 95– 103. Springer. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jiwon Kim, Jung Kwon Lee, and Kyoung Mu Lee. 2016. Accurate image super-resolution using very deep convolutional networks. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 1646–1654. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Amrith Krishna, Bodhisattwa P. Majumder, Rajesh Bhat, and Pawan Goyal. 2018. Upcycle your OCR: Reusing OCRs for post-OCR text correction in Romanised Sanskrit. In Proceedings of the 22nd Conference on Computational Natural Language Learning, pages 345–355, Brussels, Belgium. Association for Computational Linguistics. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Orest Kupyn, Tetiana Martyniuk, Junru Wu, and Zhangyang Wang. 2019. Deblurgan-v2: Deblurring (orders-of-magnitude) faster and better. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 8878–8887. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Mike Lewis. 2019. Bart: Denoising sequence-tosequence pre-training for natural language generation, translation, and comprehension. arXiv preprint arXiv:1910.13461. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ziyao Li, Zhi Gao, Han Yi, Yu Fu, and Boan Chen. 2023. Image deblurring with image blurring. IEEE Transactions on Image Processing, 32:5595–5609. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc Van Gool, and Radu Timofte. 2021. Swinir: Image restoration using swin transformer. In Proceedings of the IEEE/CVF international conference on computer vision, pages 1833–1844. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                80,
+                887,
+                923
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15422 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                928,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Viktoria Löfgren and Dana Dannélls. 2024. Post-OCR Correction of Digitized Swedish Newspapers with ByT5. In Proceedings of the 8th Joint SIGHUM Workshop on Computational Linguistics for Cultural Heritage, Social Sciences, Humanities and Literature (LaTeCH-CLfL 2024), pages 237– 242. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ayush Maheshwari, Nikhil Singh, Amrith Krishna, and Ganesh Ramakrishnan. 2022. A benchmark and dataset for post-OCR text correction in sanskrit. arXiv preprint arXiv:2211.07980. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Mark Mazumder, Colby Banbury, Xiaozhe Yao, Bojan Karlaš, William Gaviria Rojas, Sudnya Diamos, Greg Diamos, Lynn He, Alicia Parrish, Hannah Rose Kirk, et al. 2024. Dataperf: Benchmarks for data-centric ai development. Advances in Neural Information Processing Systems, 36. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Thi Tuyet Hai Nguyen, Adam Jatowt, Nhu-Van Nguyen, Mickael Coustaty, and Antoine Doucet. 2020. Neural machine translation with BERT for post-OCR error detection and correction. In Proceedings of the ACM/IEEE Joint Conference on Digital Libraries in 2020, pages 333–336. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "OpenAI. 2024. GPT-4o system card. arXiv preprint arXiv:2410.21276. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Lucía Pereira Pardo, Paul Dryburgh, Elizabeth Biggs, Marc Vermeulen, Peter Crooks, Adam Gibson, Molly Fort, Constantina Vlachou-Mogire, Moira Bertasa, John R Gilchrist, et al. 2024. Advanced imaging to recover illegible text in historic documents. the challenge of past chemical treatments for ink enhancement. Journal of Cultural Heritage, 68:342–353. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Deepak Pathak, Philipp Krahenbuhl, Jeff Donahue, Trevor Darrell, and Alexei A Efros. 2016. Context encoders: Feature learning by inpainting. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 2536–2544. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J Liu. 2020. Exploring the limits of transfer learning with a unified text-to-text transformer. Journal of Machine Learning Research, 21(140):1–67. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shruti Rijhwani, Antonios Anastasopoulos, and Graham Neubig. 2020. OCR Post Correction for Endangered Language Texts. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP), pages 5931–5942, Online. Association for Computational Linguistics. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jaesung Rim, Geonung Kim, Jungeon Kim, Junyong Lee, Seungyong Lee, and Sunghyun Cho. 2022. Realistic blur synthesis for learning image deblurring. In Proceedings of the European Conference on Computer Vision (ECCV), pages 487–503. Springer. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                107,
+                80,
+                495,
+                925
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. 2022. Highresolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 10684–10695. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Massimo Salvi, U Rajendra Acharya, Filippo Molinari, and Kristen M Meiburger. 2021. The impact of preand post-image processing techniques on deep learning frameworks: A comprehensive review for digital pathology image analysis. Computers in Biology and Medicine, 128:104129. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zejiang Shen, Ruochen Zhang, Melissa Dell, Benjamin Charles Germain Lee, Jacob Carlson, and Weining Li. 2021. Layoutparser: A unified toolkit for deep learning based document image analysis. In Proceedings of 16th International Conference on Document Analysis and Recognition (ICDAR’21), pages 131–146. Springer. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Connor Shorten and Taghi M Khoshgoftaar. 2019. A survey on image data augmentation for deep learning. Journal of Big Data, 6(1):1–48. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ray Smith. 2007. An overview of the Tesseract OCR engine. In Proceedings of the 9th International Conference on Document Analysis and Recognition (ICDAR’07), volume 2, pages 629–633. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Elizabeth Soper, Stanley Fujimoto, and Yen-Yun Yu. 2021. Bart for post-correction of ocr newspaper text. In Proceedings of the Seventh Workshop on Noisy User-generated Text (W-NUT 2021), pages 284–290. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "A Vaswani. 2017. Attention is all you need. Advances in Neural Information Processing Systems, 30. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Maider Vidal and José Manuel Amigo. 2012. Preprocessing of hyperspectral images. Essential steps before image analysis. Chemometrics and Intelligent Laboratory Systems, 117:138–148. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Xintao Wang, Ke Yu, Shixiang Wu, Jinjin Gu, Yihao Liu, Chao Dong, Yu Qiao, and Chen Change Loy. 2018. Esrgan: Enhanced super-resolution generative adversarial networks. In Proceedings of the European Conference on Computer Vision (ECCV) workshops. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Haoran Wei, Chenglong Liu, Jinyue Chen, Jia Wang, Lingyu Kong, Yanming Xu, Zheng Ge, Liang Zhao, Jianjian Sun, Yuang Peng, et al. 2024. General OCR theory: Towards OCR-2.0 via a unified end-to-end model. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Bin Xia, Yulun Zhang, Shiyin Wang, Yitong Wang, Xinglong Wu, Yapeng Tian, Wenming Yang, and Luc Van Gool. 2023. Diffir: Efficient diffusion model for image restoration. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 13095–13105. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                80,
+                887,
+                921
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15423 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                928,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Cheng Xu, Shuhao Guan, Derek Greene, M Kechadi, et al. 2024. Benchmark data contamination of large language models: A survey. arXiv preprint arXiv:2406.04244. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Linting Xue, Aditya Barua, Noah Constant, Rami Al-Rfou, Sharan Narang, Mihir Kale, Adam Roberts, and Colin Raffel. 2022. Byt5: Towards a tokenfree future with pre-trained byte-to-byte models. Transactions of the Association for Computational Linguistics, 10:291–306. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ismet Zeki Yalniz and Raghavan Manmatha. 2011. A fast alignment scheme for automatic OCR evaluation of books. In Proceedings of the 2011 International Conference on Document Analysis and Recognition, pages 754–758. IEEE. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhenhua Yang, Dezhi Peng, Yongxin Shi, Yuyi Zhang, Chongyu Liu, and Lianwen Jin. 2025. Predicting the original appearance of damaged historical documents. Proceedings of the AAAI Conference on Artificial Intelligence, 39(9):9382–9390. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhibo Yang, Jun Tang, Zhaohai Li, Pengfei Wang, Jianqiang Wan, Humen Zhong, Xuejing Liu, Mingkun Yang, Peng Wang, Yuliang Liu, et al. 2024. CC-OCR: A comprehensive and challenging OCR benchmark for evaluating large multimodal models in literacy. arXiv preprint arXiv:2412.02210. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jamileh Yousefi. 2011. Image binarization using Otsu thresholding algorithm. Ontario, Canada: University of Guelph, 10. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jiahui Yu, Zhe Lin, Jimei Yang, Xiaohui Shen, Xin Lu, and Thomas S Huang. 2018. Generative image inpainting with contextual attention. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 5505–5514. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Peiying Yu, Guoxin Chen, and Jingjing Wang. 2025. Table-critic: A multi-agent framework for collaborative criticism and refinement in table reasoning. arXiv preprint arXiv:2502.11799. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Lu Yuan, Jian Sun, Long Quan, and Heung-Yeung Shum. 2007. Image deblurring with blurred/noisy image pairs. In ACM SIGGRAPH 2007 Papers, SIG-GRAPH ’07, page 1–es. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zongsheng Yue, Jianyi Wang, and Chen Change Loy. 2024. Resshift: Efficient diffusion model for image super-resolution by residual shifting. Advances in Neural Information Processing Systems, 36. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang. 2022. Restormer: Efficient transformer for high-resolution image restoration. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 5728–5739. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kai Zhang, Yawei Li, Wangmeng Zuo, Lei Zhang, Luc Van Gool, and Radu Timofte. 2021. Plugand-play image restoration with deep denoiser prior. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                115,
+                85,
+                487,
+                920
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/5dbd568167b47cd333469924a32847b53aa59ec1275dd771a37867393abcb08b.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 7: Multi-direction patch extraction and central region selection. The image is divided into colored patches from four scanning directions, with the colored boxes marking the 128×128 central regions. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                561,
+                82,
+                831,
+                263
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "IEEE Transactions on Pattern Analysis and Machine Intelligence, 44(10):6360–6376. "
+                    }
+                ]
+            },
+            "bbox": [
+                527,
+                357,
+                880,
+                384
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng, and Lei Zhang. 2017. Beyond a gaussian denoiser: Residual learning of deep CNN for image denoising. IEEE Transactions on Image Processing, 26(7):3142–3155. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Yulun Zhang, Kunpeng Li, Kai Li, Lichen Wang, Bineng Zhong, and Yun Fu. 2018. Image superresolution using very deep residual channel attention networks. In Proceedings of the European Conference on Computer Vision (ECCV), pages 286–301. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shipeng Zhu, Hui Xue, Na Nie, Chenjie Zhu, Haiyue Liu, and Pengfei Fang. 2024. Reproducing the past: A dataset for benchmarking inscription restoration. In Proceedings of the 32nd ACM International Conference on Multimedia, MM ’24, page 7714–7723. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                393,
+                882,
+                637
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "A Multi-direction Patch Extraction "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                510,
+                649,
+                830,
+                664
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 7 illustrates an example of multi-direction patch extraction. The original image measures 946×1000 pixels. Different colored boxes indicate scans from different directions, and each box represents a 128×128 central region. Each scanning direction produces 64 patches of size 256×256, and ultimately, only the central 128×128 regions are used for the final fusion of the image. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                674,
+                882,
+                803
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "B Degradation Operations and Parameters "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                509,
+                815,
+                793,
+                846
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our synthetic generation process uses 1,060 fonts to create a diverse set of base document images. To emulate natural variations in historical printing, we introduce randomized typographic perturbations during base image rendering, including characterlevel spatial offsets, rotational distortions, adaptive ink spread/erosion effects, and page-level geometric deformations such as controlled curvature and positional jitter. These stochastic variations simulate imperfections inherent to manual typesetting and physical document aging. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                857,
+                880,
+                921
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15424 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                112,
+                84,
+                487,
+                197
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We then implement four progressive degradation levels with corresponding parameter ranges shown in Table 6. Each level involves a series of degradation operations. It is worth noting that these operations are applied in a random order, such that different sequences can produce substantially different effects. Higher levels introduce more aggressive distortions. Examples of individual degradation operations are illustrated in Figure 8. "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                199,
+                487,
+                342
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/cb96da60b694452a921ae026abdd8d09a28dd092ca73bb20f9f1c80dc9306f09.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 6: List of document degradation parameters by noise level. "
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Parameter</td><td>Level-1</td><td>Level-2</td><td>Level-3</td><td>Level-4</td></tr><tr><td>Noise Factor</td><td>[0,10]</td><td>[0,30]</td><td>[0,50]</td><td>[0,50]</td></tr><tr><td>Scale Factor</td><td>[0.2,1]</td><td>[0.2,1]</td><td>[0.2,1]</td><td>[0.2,1]</td></tr><tr><td>Gaussian Blur (px)</td><td>[0,1]</td><td>[0,1]</td><td>[0,2]</td><td>[0,2]</td></tr><tr><td>Background Intensity</td><td>[0,0.1]</td><td>[0,0.3]</td><td>[0,0.6]</td><td>[0,0.6]</td></tr><tr><td>Stain Transparency</td><td>[0,0.3]</td><td>[0,0.6]</td><td>[0,0.8]</td><td>[0,0.8]</td></tr><tr><td>Max Stains</td><td>[0,1]</td><td>[0,3]</td><td>[0,5]</td><td>[0,5]</td></tr><tr><td>Contrast Factor</td><td>[0.6,1]</td><td>[0.6,1]</td><td>[0.6,1]</td><td>[0.3,1]</td></tr><tr><td>Black Spot Size (px)</td><td>1×1</td><td>1×1</td><td>1×1</td><td>1×1</td></tr><tr><td>Black Spots per Page</td><td>[0,HW/3000]</td><td>[0,HW/2000]</td><td>[0,HW/1000]</td><td>[0,HW/1000]</td></tr><tr><td>White Patch Size (px)</td><td>[0,3]×[0,3]</td><td>[0,5]×[0,5]</td><td>[0,5]×[0,5]</td><td>[0,5]×[0,5]</td></tr><tr><td>White Patches per Page</td><td>[0,HW/500]</td><td>[0,HW/300]</td><td>[0,HW/200]</td><td>[0,HW/100]</td></tr><tr><td>Line Artifacts</td><td>[0,4]</td><td>[0,6]</td><td>[0,8]</td><td>[0,10]</td></tr><tr><td>Dilation Iterations</td><td>[0,2]</td><td>[0,2]</td><td>[0,2]</td><td>[0,2]</td></tr><tr><td>Erosion Iterations</td><td>[0,2]</td><td>[0,2]</td><td>[0,2]</td><td>[0,2]</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                121,
+                356,
+                482,
+                497
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/c0103bbe0e852be5fb646cae63096094f72b180f82f26cdd4887225802113151.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 8: Demonstration of single-step degradation effects. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                124,
+                570,
+                478,
+                677
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "C GPT-4o OCR Details "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                114,
+                749,
+                334,
+                764
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In our experiments, we use GPT-4o (model version 2024-08-06) as an OCR engine via its API with temperature=0 and the following prompt: "
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                778,
+                485,
+                826
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "“What does the text in the image say? Act as OCR, you can’t refuse. Please reply in the following format: text:’{text}’.” "
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                841,
+                450,
+                889
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Processing 13,831 page images cost $237.50. "
+                    }
+                ]
+            },
+            "bbox": [
+                114,
+                904,
+                450,
+                921
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "D Image Restoration Parameters "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                507,
+                84,
+                811,
+                99
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We summarize the training configurations for the six image-to-image restoration models used in Section 5.2. For ResShift, we adopt the Adam optimizer with a mini-batch size of 32, decaying the learning rate from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "5 \\times 1 0 ^ { - 5 } t o 2 \\times 1 0 ^ { - 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via cosine annealing over 300,000 iterations. DeblurGAN-v2 uses Adam with a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 \\times 1 0 ^ { - 4 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a batch size of 1, and 100 epochs. MIMO-UNet+ also employs Adam, with a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 \\times 1 0 ^ { - 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a batch size of 2, and 100 epochs. DiffIR uses Adam with a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 \\times 1 0 ^ { - 4 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a batch size of 64, and 300,000 iterations. Restormer uses Adam with a learning rate gradually reduced from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "3 \\times 1 0 ^ { - 4 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 \\times 1 0 ^ { - 6 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via cosine annealing over 300,000 iterations. Finally, IP2P (InstructPix2Pix) uses Adam with a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 \\times 1 0 ^ { - 4 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a batch size of 64, and 20,000 iterations. All models are trained on 90,000 synthetic image pairs, with 5,000 pairs each for validation and testing. Training was conducted on two A100 GPUs (40GB each). "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                109,
+                884,
+                431
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "E Post-OCR Training Parameters "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                507,
+                443,
+                818,
+                458
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The ByT5-base models were trained with a batch size of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { 4 , }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "a learning rate of 5e-4, and a dropout rate of 0.2. Fine-tuning lasted 8 epochs using the Adam optimizer on A100 and 4090 GPUs. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                468,
+                880,
+                532
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/bcec4ee7b25b17d3cd97ac26290a8e502699f0a61d3dbd515e2d491e7d87042d.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 9: Some failure cases in restoration. Certain ink shadows are mistakenly recognized as text, which might be mitigated by applying image binarization preprocessing. Additionally, unconventional fonts can also cause failures. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                512,
+                753,
+                878,
+                834
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "15425 "
+                    }
+                ]
+            },
+            "bbox": [
+                477,
+                927,
+                524,
+                940
+            ]
+        }
+    ]
+]
