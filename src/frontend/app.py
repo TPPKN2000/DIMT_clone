@@ -25,6 +25,20 @@ API_BASE = "http://localhost:8000"
 # Generous timeout for long operations (translation can take minutes)
 LONG_TIMEOUT = 600  # 10 minutes
 
+# ── Language options ─────────────────────────────────────────────────
+# Order: Vietnamese first (primary target), then French, German
+LANG_OPTIONS = [
+    "Vietnamese (vie_Latn)",
+    "French (fra_Latn)",
+    "German (deu_Latn)",
+]
+
+LANG_CODE_MAP = {
+    "Vietnamese (vie_Latn)": "vie_Latn",
+    "French (fra_Latn)": "fra_Latn",
+    "German (deu_Latn)": "deu_Latn",
+}
+
 
 # ── Backend startup (HF Spaces: only one process allowed) ───
 @st.cache_resource
@@ -35,18 +49,15 @@ def start_backend():
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
-    # Poll until backend is up (max 180s for NLLB to load)
     for _ in range(180):
         try:
             requests.get(f"{API_BASE}/docs", timeout=1)
             return proc
         except Exception:
             time.sleep(1)
-    return proc  # return anyway, let requests fail naturally
+    return proc
 
 start_backend()
-
-# ── rest of file unchanged below ────────────────────────────
 
 st.title("📄 Document Intelligent Machine Translation")
 st.caption("PDF → MinerU extraction → NLLB translation → Translated PDF + Markdown")
@@ -65,11 +76,14 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload PDF document", type=["pdf"])
     st.slider("Max convert pages", 1, 200, 200)
     st.selectbox("MinerU Engine", ["vlm", "pipeline"])
-    target_lang = st.selectbox("Target Language", [
-        "French (fra_Latn)",
-        "German (deu_Latn)",
-    ])
-    tgt_lang_code = "fra_Latn" if "fra" in target_lang else "deu_Latn"
+
+    target_lang = st.selectbox(
+        "Target Language",
+        LANG_OPTIONS,
+        index=0,  # Vietnamese is default
+    )
+    tgt_lang_code = LANG_CODE_MAP[target_lang]
+
     agent_llm = st.selectbox("Agent LLM", ["DeepSeek", "Gemini"])
     agent_llm_code = "gemini" if agent_llm == "Gemini" else "deepseek"
 
@@ -89,10 +103,8 @@ if clear_btn:
 # ── Helper: run translate + render sequentially ─────────────
 def _run_translate_and_render(doc_id, tgt_lang, num_paras=0, num_pages=0):
     """Called in a thread — translate then render with dynamic timeout."""
-    # Based on observation: ~18s/paragraph and ~2s/page. 
-    # We use 20s and 5s + 600s buffer for safety.
     dynamic_timeout = (num_paras * 20) + (num_pages * 5) + 600
-    if dynamic_timeout < LONG_TIMEOUT: 
+    if dynamic_timeout < LONG_TIMEOUT:
         dynamic_timeout = LONG_TIMEOUT
 
     tr = requests.post(
@@ -104,7 +116,6 @@ def _run_translate_and_render(doc_id, tgt_lang, num_paras=0, num_pages=0):
     if tr_data.get("status") != "success":
         return {"status": "error", "step": "translate", "data": tr_data}
 
-    # Only render if layout.json exists
     if tr_data.get("has_middle_json"):
         rr = requests.post(
             f"{API_BASE}/render-pdf",
@@ -142,8 +153,14 @@ if convert_btn and uploaded_file:
                     st.session_state.num_paragraphs = data.get("num_paragraphs", 0)
                     st.session_state.human_check = human_check
                     st.session_state.q4_confirmed = False
-                    st.success(f"✅ Extraction complete (ID: {data['doc_id']}) — "
-                               f"Found {st.session_state.num_pages} pages, {st.session_state.num_paragraphs} paragraphs")
+
+                    cached = data.get("cached", False)
+                    cache_msg = " (từ cache 🗄️)" if cached else ""
+                    st.success(
+                        f"✅ Extraction complete{cache_msg} (ID: {data['doc_id']}) — "
+                        f"Found {st.session_state.num_pages} pages, "
+                        f"{st.session_state.num_paragraphs} paragraphs"
+                    )
                 else:
                     st.error(f"❌ Extraction failed: {data.get('message')}")
             else:
@@ -153,7 +170,7 @@ if convert_btn and uploaded_file:
         except requests.exceptions.ConnectionError:
             st.error("❌ Cannot connect to backend. Is the server running?")
 
-    # Step 2: If Human Check → run Q4 verification and stop (wait for confirm)
+    # Step 2: Human Check → Q4 verification
     if st.session_state.human_check and st.session_state.doc_id:
         with st.spinner("🔍 Running Q4 verification (Agent)..."):
             try:
@@ -173,14 +190,13 @@ if convert_btn and uploaded_file:
                 st.error("❌ Q4 verification timed out.")
             except requests.exceptions.ConnectionError:
                 st.error("❌ Cannot connect to backend.")
-        # Pipeline pauses here — user must review HITL and click Confirm
 
-    # Step 2b: If NOT Human Check → run translate+render+keywords in parallel
+    # Step 2b: No Human Check → translate+render+keywords in parallel
     if not st.session_state.human_check and st.session_state.doc_id:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
-        
+
         dynamic_timeout = (st.session_state.num_paragraphs * 20) + (st.session_state.num_pages * 5) + 600
-        if dynamic_timeout < LONG_TIMEOUT: 
+        if dynamic_timeout < LONG_TIMEOUT:
             dynamic_timeout = LONG_TIMEOUT
 
         fut_pipeline = executor.submit(
@@ -192,7 +208,6 @@ if convert_btn and uploaded_file:
             _run_keywords, st.session_state.doc_id, agent_llm_code
         )
 
-        # Pipeline A: Translate + Render (critical path)
         with st.spinner("🔄 Translating & rendering PDF... (this may take several minutes)"):
             try:
                 pipeline_result = fut_pipeline.result(timeout=dynamic_timeout)
@@ -207,11 +222,10 @@ if convert_btn and uploaded_file:
                 else:
                     st.error(f"❌ Pipeline failed at {pipeline_result.get('step', 'unknown')}")
             except concurrent.futures.TimeoutError:
-                st.error(f"❌ Translation pipeline timed out after {dynamic_timeout}s. The document might be too large.")
+                st.error(f"❌ Translation pipeline timed out after {dynamic_timeout}s.")
             except Exception as e:
                 st.error(f"❌ Translation pipeline error: {e}")
 
-        # Pipeline B: Keywords (independent, shorter timeout)
         with st.spinner("📚 Extracting keywords & references..."):
             try:
                 kw_result = fut_keywords.result(timeout=120)
@@ -226,7 +240,7 @@ if convert_btn and uploaded_file:
         executor.shutdown(wait=False)
 
 
-# ── HITL Review & Confirm (only when Human Check is on) ────
+# ── HITL Review & Confirm ────────────────────────────────────
 if (st.session_state.human_check
     and st.session_state.q4_result
     and not st.session_state.q4_confirmed):
@@ -256,16 +270,16 @@ if (st.session_state.human_check
         st.rerun()
 
 
-# ── After Confirm: run translate+render+keywords in parallel
+# ── After Confirm: translate+render+keywords in parallel ─────
 if (st.session_state.human_check
     and st.session_state.q4_confirmed
     and st.session_state.doc_id
     and st.session_state.translated_markdown is None):
 
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
-    
+
     dynamic_timeout = (st.session_state.num_paragraphs * 20) + (st.session_state.num_pages * 5) + 600
-    if dynamic_timeout < LONG_TIMEOUT: 
+    if dynamic_timeout < LONG_TIMEOUT:
         dynamic_timeout = LONG_TIMEOUT
 
     fut_pipeline = executor.submit(
@@ -277,7 +291,6 @@ if (st.session_state.human_check
         _run_keywords, st.session_state.doc_id, agent_llm_code
     )
 
-    # Pipeline A: Translate + Render (critical path)
     with st.spinner("🔄 Translating & rendering PDF... (this may take several minutes)"):
         try:
             pipeline_result = fut_pipeline.result(timeout=dynamic_timeout)
@@ -292,11 +305,10 @@ if (st.session_state.human_check
             else:
                 st.error(f"❌ Pipeline failed at {pipeline_result.get('step', 'unknown')}")
         except concurrent.futures.TimeoutError:
-            st.error(f"❌ Translation pipeline timed out after {dynamic_timeout}s. The document might be too large.")
+            st.error(f"❌ Translation pipeline timed out after {dynamic_timeout}s.")
         except Exception as e:
             st.error(f"❌ Translation pipeline error: {e}")
 
-    # Pipeline B: Keywords (independent, shorter timeout)
     with st.spinner("📚 Extracting keywords & references..."):
         try:
             kw_result = fut_keywords.result(timeout=120)
@@ -310,7 +322,7 @@ if (st.session_state.human_check
 
     executor.shutdown(wait=False)
 
-    # Also fetch HITL blocks after translation
+    # Fetch HITL blocks after translation
     if st.session_state.has_middle:
         try:
             hitl_res = requests.get(
@@ -327,7 +339,6 @@ if (st.session_state.human_check
 if st.session_state.translated_markdown is not None:
     st.header("📊 Results")
 
-    # Build tabs dynamically based on human_check
     if st.session_state.human_check:
         tab_names = ["📝 Translated Markdown", "✏️ Editable Text",
                      "🔧 HITL Verification", "📚 References", "📥 Downloads"]
@@ -350,7 +361,6 @@ if st.session_state.translated_markdown is not None:
         st.caption("Each block corresponds to a paragraph in the translated layout. "
                    "Edit as needed, then submit feedback below.")
 
-        # Show as notebook-style blocks if we have translated_middle data
         edited_text = st.text_area(
             "Edit translated markdown (feedback loop)",
             st.session_state.translated_markdown,
@@ -378,7 +388,7 @@ if st.session_state.translated_markdown is not None:
             except Exception as e:
                 st.error(f"❌ Feedback error: {e}")
 
-    # HITL Verification Tab (only if human_check)
+    # HITL Verification Tab
     if tab_hitl is not None:
         with tab_hitl:
             st.subheader("🔧 Human-in-the-Loop Verification")
@@ -459,8 +469,8 @@ if st.session_state.translated_markdown is not None:
                 for ref in wiki:
                     urls = []
                     if ref.get("url"):
-                        urls.append(f"[Target Lang]({ref['url']})")
-                    if ref.get("en_url"):
+                        urls.append(f"[Ngôn ngữ đích]({ref['url']})")
+                    if ref.get("en_url") and ref.get("en_url") != ref.get("url"):
                         urls.append(f"[English]({ref['en_url']})")
                     if urls:
                         links = " | ".join(urls)
