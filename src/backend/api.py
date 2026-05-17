@@ -2,15 +2,17 @@
 FastAPI Backend — Production pipeline API.
 
 Endpoints:
-  POST /upload         — Upload PDF → MinerU extraction (auto-split >200 pages)
-  POST /translate      — Translate via NLLB (layout.json paragraph-level, batch)
-  POST /render-pdf     — Render translated PDF from layout.json + images
-  POST /agent/verify   — AI agent: Q4 score verification only
-  POST /agent/keywords — AI agent: keyword extraction + WikiSearch URLs
-  POST /feedback       — Log user metrics to MLflow
-  GET  /download/{id}  — Download rendered PDF
-  GET  /stream-pdf/{id} — Stream PDF for preview
-  POST /hitl/update    — Human-in-the-Loop: update flagged translation
+  POST /upload                  — Upload PDF → MinerU extraction (STEP 0: SHA-256 dedup)
+  POST /translate               — Translate via NLLB + build bilingual mapping
+  POST /render-pdf              — Render translated PDF from layout.json + images
+  POST /agent/verify            — AI agent: Q4 score verification only
+  POST /agent/keywords          — AI agent: keyword extraction + WikiSearch URLs
+  POST /agent/table-recovery    — AI agent: patch untranslated blocks (Bước 3)
+  POST /feedback                — Log user metrics to MLflow
+  GET  /download/{id}           — Download rendered PDF
+  GET  /stream-pdf/{id}         — Stream PDF for preview
+  POST /hitl/update             — Human-in-the-Loop: update flagged translation
+  GET  /bilingual/{id}          — Retrieve bilingual mapping pairs (Bước 6)
 """
 
 import json
@@ -32,6 +34,13 @@ from .agent import AIAgent
 from .evaluation import Evaluator
 from .pdf_renderer import PDFRenderer
 from .mongo_store import MongoDocStore
+from .dedup_cache import lookup_cache, register_cache
+from .bilingual_mapping import (
+    build_bilingual_mapping,
+    save_bilingual_mapping,
+    load_bilingual_mapping,
+    apply_hitl_edit_to_mapping,
+)
 
 # ── Services ─────────────────────────────────────────────────
 mineru = MinerUClient()
@@ -41,7 +50,6 @@ evaluator = Evaluator()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start background loading of NLLB model
     print("[API] Starting background NLLB model loading...")
     asyncio.create_task(asyncio.to_thread(nllb.load_model))
     yield
@@ -54,23 +62,20 @@ app.add_middleware(
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
-# Dual-write store: in-memory cache + MongoDB persistence
-doc_store = MongoDocStore()
 
-# GPU concurrency guard (single-user, prevent CUDA OOM)
+doc_store = MongoDocStore()
 gpu_semaphore = asyncio.Semaphore(1)
 
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Max pages before auto-split for MinerU (API limit: 200 pages)
 MAX_MINERU_PAGES = 200
 
 
 # ── Models ──────────────────────────────────────────────────
 class TranslateRequest(BaseModel):
     doc_id: str
-    tgt_lang: str = "fra_Latn"
+    tgt_lang: str = "vie_Latn"
 
 class RenderRequest(BaseModel):
     doc_id: str
@@ -97,7 +102,6 @@ class HITLUpdateRequest(BaseModel):
 # ── Helpers ─────────────────────────────────────────────────
 
 def _count_pdf_pages(pdf_path: Path) -> int:
-    """Count pages in a PDF using PyMuPDF."""
     import fitz
     doc = fitz.open(str(pdf_path))
     count = len(doc)
@@ -105,7 +109,6 @@ def _count_pdf_pages(pdf_path: Path) -> int:
     return count
 
 def _split_pdf(pdf_path: Path, chunk_size: int = MAX_MINERU_PAGES) -> list[Path]:
-    """Split a large PDF into chunks of chunk_size pages. Returns list of chunk paths."""
     import fitz
     doc = fitz.open(str(pdf_path))
     total = len(doc)
@@ -128,17 +131,14 @@ def _split_pdf(pdf_path: Path, chunk_size: int = MAX_MINERU_PAGES) -> list[Path]
     return chunks
 
 def _count_paragraphs(layout_data: dict) -> int:
-    """Count translatable blocks for timeout estimation."""
     if not layout_data: return 0
     count = 0
     for page in layout_data.get("pdf_info", []):
-        # Heuristic: count blocks in both para_blocks and preproc_blocks
         blocks = page.get("preproc_blocks", page.get("para_blocks", []))
         count += len(blocks)
     return count
 
 def _merge_layout_jsons(layouts: list[dict]) -> dict:
-    """Merge multiple layout.json dicts into one, adjusting page indices."""
     merged = {"pdf_info": []}
     page_offset = 0
     for layout in layouts:
@@ -154,26 +154,48 @@ def _merge_layout_jsons(layouts: list[dict]) -> dict:
 
 @app.post("/upload")
 async def upload_file(file: UploadFile):
-    """Upload PDF → extract via MinerU. Auto-splits PDFs >200 pages."""
+    """
+    Upload PDF → extract via MinerU.
+
+    STEP 0: SHA-256 dedup check.
+      - Cache hit  → skip MinerU entirely, return cached doc_id + cached=True
+      - Cache miss → run full MinerU extraction, register result in cache
+    Auto-splits PDFs >200 pages before sending to MinerU.
+    """
+    print(f"\n{'='*60}")
+    print(f"[API] /upload — file={file.filename}")
+
+    content = await file.read()
+
+    # ── STEP 0: Deduplication ────────────────────────────────
+    cached_doc_id, cached_doc = lookup_cache(content, doc_store)
+    if cached_doc_id is not None:
+        evaluator.start_inference(cached_doc_id)
+        evaluator.end_inference(cached_doc_id)
+        return {
+            "status": "success",
+            "doc_id": cached_doc_id,
+            "num_pages": cached_doc.get("num_pages", 0),
+            "num_paragraphs": cached_doc.get("num_paragraphs", 0),
+            "cached": True,
+        }
+
+    # ── New document — full pipeline ─────────────────────────
     doc_id = str(uuid.uuid4())[:8]
     evaluator.start_inference(doc_id)
-    print(f"\n{'='*60}")
-    print(f"[API] /upload — doc_id={doc_id}, file={file.filename}")
+    print(f"[API] New doc — doc_id={doc_id}")
 
-    # Save uploaded file
     input_dir = Path("input_docs")
     input_dir.mkdir(exist_ok=True)
     save_path = input_dir / file.filename
-    content = await file.read()
     save_path.write_bytes(content)
     print(f"[API] Saved {len(content)} bytes → {save_path}")
 
-    # Q8: Auto-split >200-page PDFs
     page_count = _count_pdf_pages(save_path)
     print(f"[API] PDF has {page_count} pages")
 
     if page_count > MAX_MINERU_PAGES:
-        print(f"[API] Large PDF detected ({page_count} pages). Auto-splitting into chunks of {MAX_MINERU_PAGES}...")
+        print(f"[API] Large PDF ({page_count} pages). Auto-splitting into chunks of {MAX_MINERU_PAGES}...")
         chunks = _split_pdf(save_path)
         all_layouts = []
         all_markdowns = []
@@ -196,22 +218,27 @@ async def upload_file(file: UploadFile):
 
         merged_md = "\n\n---\n\n".join(all_markdowns)
         merged_layout = _merge_layout_jsons(all_layouts) if all_layouts else None
+        p_count = _count_paragraphs(merged_layout)
 
-        doc_store.set(doc_id, {
+        doc_data = {
             "filename": file.filename,
             "markdown": merged_md,
             "middle_json": merged_layout,
             "images_dir": images_dir,
             "extract_dir": extract_dir,
             "num_pages": page_count,
-            "num_paragraphs": _count_paragraphs(merged_layout)
-        })
+            "num_paragraphs": p_count,
+        }
+        doc_store.set(doc_id, doc_data)
+        register_cache(content, doc_id, doc_store)
+
         print(f"[API] ✅ Large PDF extraction complete. {len(all_layouts)} chunks merged.")
         return {
-            "status": "success", 
-            "doc_id": doc_id, 
-            "num_pages": page_count, 
-            "num_paragraphs": _count_paragraphs(merged_layout)
+            "status": "success",
+            "doc_id": doc_id,
+            "num_pages": page_count,
+            "num_paragraphs": p_count,
+            "cached": False,
         }
 
     # Normal extraction for ≤200-page PDFs
@@ -221,22 +248,26 @@ async def upload_file(file: UploadFile):
     if res["status"] == "success":
         m_json = res.get("middle_json")
         p_count = _count_paragraphs(m_json)
-        doc_store.set(doc_id, {
+        doc_data = {
             "filename": file.filename,
             "markdown": res["markdown"],
             "middle_json": m_json,
             "images_dir": res.get("images_dir"),
             "extract_dir": res.get("extract_dir"),
             "num_pages": page_count,
-            "num_paragraphs": p_count
-        })
+            "num_paragraphs": p_count,
+        }
+        doc_store.set(doc_id, doc_data)
+        register_cache(content, doc_id, doc_store)
+
         print(f"[API] ✅ Extraction complete. MD length={len(res['markdown'])}, "
-              f"has_layout={'middle_json' in res and res['middle_json'] is not None}")
+              f"has_layout={m_json is not None}")
         return {
-            "status": "success", 
+            "status": "success",
             "doc_id": doc_id,
             "num_pages": page_count,
-            "num_paragraphs": p_count
+            "num_paragraphs": p_count,
+            "cached": False,
         }
 
     print(f"[API] ❌ Extraction failed: {res.get('message')}")
@@ -261,9 +292,10 @@ async def translate_document(req: TranslateRequest):
         print(f"[API] ❌ Document {req.doc_id} not found")
         return {"status": "error", "message": "Document not found"}
 
-    # Set target language
     if req.tgt_lang in NLLBService.SUPPORTED_LANGS:
         nllb.set_target_lang(req.tgt_lang)
+        # Sync target lang to agent so wiki URLs use right language
+        agent.target_lang = req.tgt_lang
         print(f"[API] Target language set to {req.tgt_lang}")
 
     middle_data = doc.get("middle_json")
@@ -273,33 +305,19 @@ async def translate_document(req: TranslateRequest):
     async with gpu_semaphore:
         print("[API] GPU semaphore acquired. Starting translation...")
         if middle_data:
-            # Q9: Paragraph-level batch translation from layout.json
             page_count = len(middle_data.get("pdf_info", []))
             print(f"[API] Translating layout.json ({page_count} pages)...")
             translated_middle = await asyncio.to_thread(
                 nllb.translate_middle_json, middle_data
             )
             doc["translated_middle"] = translated_middle
-#             print(f"[API] Layout translation complete. Now translating markdown...")
-#             # Also generate translated markdown
-#             translated_md = await asyncio.to_thread(
-#                 nllb.translate_markdown, doc["markdown"]
-#             )
-#             print(f"[API] Markdown translation complete.")
-        else:
-            pass
-#             # Fallback: markdown-only translation
-#             print("[API] No layout.json found. Falling back to markdown-only translation...")
-#             translated_md = await asyncio.to_thread(
-#                 nllb.translate_markdown, doc["markdown"]
-#             )
 
     elapsed = time.time() - t_start
     doc["translated_md"] = translated_md
     doc_store.update(req.doc_id, doc)
     evaluator.end_inference(req.doc_id)
 
-    print(f"[API] ✅ Translation complete in {elapsed:.1f}s. MD length={len(translated_md)}")
+    print(f"[API] ✅ Translation complete in {elapsed:.1f}s.")
 
     return {
         "status": "success",
@@ -317,22 +335,17 @@ async def render_pdf(req: RenderRequest):
 
     doc = doc_store.get(req.doc_id)
     if not doc:
-        print(f"[API] ❌ Document {req.doc_id} not found")
         return {"status": "error", "message": "Document not found"}
 
-    # Use already-translated layout data (decoupled from translation)
     translated_middle = doc.get("translated_middle")
     middle_data = doc.get("middle_json")
     layout_data = translated_middle or middle_data
     if not layout_data:
-        print("[API] ❌ No layout.json found for rendering")
         return {"status": "error", "message": "No layout.json found. Run translation first."}
 
-    # Find origin PDF path
     input_dir = Path("input_docs")
     origin_pdf_path = input_dir / doc["filename"]
     if not origin_pdf_path.exists():
-        print(f"[API] ❌ Origin PDF not found: {origin_pdf_path}")
         return {"status": "error", "message": f"Origin PDF not found: {origin_pdf_path}"}
 
     images_dir = doc.get("images_dir")
@@ -360,22 +373,17 @@ async def render_pdf(req: RenderRequest):
 
 @app.get("/stream-pdf/{doc_id}")
 async def stream_pdf(doc_id: str):
-    """Stream the rendered translated PDF for preview."""
     doc = doc_store.get(doc_id)
     if not doc or "pdf_path" not in doc:
         return JSONResponse({"status": "error", "message": "PDF not found"}, status_code=404)
     pdf_path = Path(doc["pdf_path"])
     if not pdf_path.exists():
         return JSONResponse({"status": "error", "message": "PDF file missing"}, status_code=404)
-    return FileResponse(
-        str(pdf_path),
-        media_type="application/pdf",
-    )
+    return FileResponse(str(pdf_path), media_type="application/pdf")
 
 
 @app.get("/download/{doc_id}")
 async def download_pdf(doc_id: str):
-    """Download the rendered translated PDF."""
     doc = doc_store.get(doc_id)
     if not doc or "pdf_path" not in doc:
         return JSONResponse({"status": "error", "message": "PDF not found"}, status_code=404)
@@ -386,31 +394,27 @@ async def download_pdf(doc_id: str):
     )
 
 
-# ── Agent: Q4 Verification (called right after upload) ─────
+# ── Agent: Q4 Verification ──────────────────────────────────
 
 @app.post("/agent/verify")
 async def agent_verify(req: AgentRequest):
-    """Run Q4 score verification on extracted layout data."""
     print(f"\n{'='*60}")
     print(f"[API] /agent/verify — doc_id={req.doc_id}")
     t_start = time.time()
 
     doc = doc_store.get(req.doc_id)
     if not doc:
-        print(f"[API] ❌ Document {req.doc_id} not found")
         return {"status": "error", "message": "Document not found"}
 
     layout_data = doc.get("middle_json", {})
 
     try:
         agent.set_llm_provider(req.llm_provider)
-        print(f"[API] Running Q4 verification (LLM: {req.llm_provider})...")
         q4_result = await asyncio.to_thread(agent.verify_q4_elements, layout_data)
         doc["agent_result"] = {"q4_verification": q4_result}
         doc_store.update(req.doc_id, doc)
         elapsed = time.time() - t_start
-        q4_count = q4_result.get("q4_count", 0)
-        print(f"[API] ✅ Q4 verification complete in {elapsed:.1f}s. Q4 elements={q4_count}")
+        print(f"[API] ✅ Q4 verification complete in {elapsed:.1f}s. Q4 elements={q4_result.get('q4_count', 0)}")
         return {"status": "success", "q4_verification": q4_result}
     except Exception as e:
         print(f"[API] ❌ Agent verify error: {e}")
@@ -418,29 +422,25 @@ async def agent_verify(req: AgentRequest):
         return {"status": "error", "message": f"Agent verify failed: {e}"}
 
 
-# ── Agent: Keywords (called in parallel with translate) ─────
+# ── Agent: Keywords ─────────────────────────────────────────
 
 @app.post("/agent/keywords")
 async def agent_keywords(req: AgentRequest):
-    """Extract keywords and generate WikiSearch URLs."""
     print(f"\n{'='*60}")
     print(f"[API] /agent/keywords — doc_id={req.doc_id}")
     t_start = time.time()
 
     doc = doc_store.get(req.doc_id)
     if not doc:
-        print(f"[API] ❌ Document {req.doc_id} not found")
         return {"status": "error", "message": "Document not found"}
 
     markdown = doc.get("markdown", "")
 
     try:
         agent.set_llm_provider(req.llm_provider)
-        print(f"[API] Extracting keywords (LLM: {req.llm_provider})...")
         keywords = await asyncio.to_thread(agent.extract_keywords, markdown)
         wiki_urls = agent.get_keyword_wiki_urls(keywords)
 
-        # Merge into existing agent_result
         agent_result = doc.get("agent_result", {})
         agent_result["keywords"] = keywords
         agent_result["wiki_references"] = wiki_urls
@@ -456,18 +456,16 @@ async def agent_keywords(req: AgentRequest):
         return {"status": "error", "message": f"Agent keywords failed: {e}"}
 
 
-# ── Legacy combined agent endpoint (kept for compatibility) ──
+# ── Legacy combined agent endpoint ──────────────────────────
 
 @app.post("/agent")
 async def run_agent(req: AgentRequest):
-    """AI Agent: Q4 verification + keyword extraction + WikiSearch URLs."""
     print(f"\n{'='*60}")
     print(f"[API] /agent — doc_id={req.doc_id}")
     t_start = time.time()
 
     doc = doc_store.get(req.doc_id)
     if not doc:
-        print(f"[API] ❌ Document {req.doc_id} not found")
         return {"status": "error", "message": "Document not found"}
 
     middle_data = doc.get("middle_json", {})
@@ -475,14 +473,11 @@ async def run_agent(req: AgentRequest):
 
     try:
         agent.set_llm_provider(req.llm_provider)
-        print(f"[API] Running agent analysis (Q4 + keywords, LLM: {req.llm_provider})...")
         result = await asyncio.to_thread(agent.run, middle_data, markdown)
         doc["agent_result"] = result
         doc_store.update(req.doc_id, doc)
         elapsed = time.time() - t_start
-        q4_count = result.get("q4_verification", {}).get("q4_count", 0)
-        kw_count = len(result.get("keywords", []))
-        print(f"[API] ✅ Agent complete in {elapsed:.1f}s. Q4 elements={q4_count}, keywords={kw_count}")
+        print(f"[API] ✅ Agent complete in {elapsed:.1f}s.")
         return result
     except Exception as e:
         print(f"[API] ❌ Agent error: {e}")
@@ -492,7 +487,6 @@ async def run_agent(req: AgentRequest):
 
 @app.post("/feedback")
 async def log_feedback(req: FeedbackRequest):
-    """Log user feedback metrics to MLflow."""
     print(f"[API] /feedback — doc_id={req.doc_id}, rating={req.user_rating}")
     try:
         metrics = evaluator.log_metrics(
@@ -509,11 +503,10 @@ async def log_feedback(req: FeedbackRequest):
         return {"status": "error", "message": str(e)}
 
 
-# ── Q6: HITL — Human-in-the-Loop update ────────────────────
+# ── HITL ────────────────────────────────────────────────────
 
 @app.post("/hitl/update")
 async def hitl_update(req: HITLUpdateRequest):
-    """Update a specific translated block's text (Human-in-the-Loop)."""
     print(f"[API] /hitl/update — doc_id={req.doc_id}, page={req.page_idx}, block={req.block_idx}")
     doc = doc_store.get(req.doc_id)
     if not doc:
@@ -533,7 +526,6 @@ async def hitl_update(req: HITLUpdateRequest):
             return {"status": "error", "message": f"Block {req.block_idx} out of range"}
 
         block = blocks[req.block_idx]
-        # Rewrite the block's content with user-edited text
         block["lines"] = [{
             "bbox": block.get("bbox", [0, 0, 0, 0]),
             "spans": [{
@@ -555,7 +547,6 @@ async def hitl_update(req: HITLUpdateRequest):
 
 @app.get("/hitl/blocks/{doc_id}")
 async def get_hitl_blocks(doc_id: str):
-    """Get all Q4-flagged blocks for HITL editing."""
     doc = doc_store.get(doc_id)
     if not doc:
         return {"status": "error", "message": "Document not found"}
@@ -567,7 +558,6 @@ async def get_hitl_blocks(doc_id: str):
     flagged_blocks = []
     for item in q4.get("results", []):
         if item.get("verdict") == "REVIEW":
-            # Find the corresponding block in translated layout
             page_idx = item.get("page", 0)
             pages = translated_middle.get("pdf_info", [])
             if page_idx < len(pages):
