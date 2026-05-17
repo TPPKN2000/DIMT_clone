@@ -312,8 +312,17 @@ async def translate_document(req: TranslateRequest):
             )
             doc["translated_middle"] = translated_middle
 
+    # ── Bước 6: Build and persist bilingual mapping ──────────
+    if middle_data and translated_middle:
+        try:
+            pairs = build_bilingual_mapping(middle_data, translated_middle, req.tgt_lang)
+            save_bilingual_mapping(req.doc_id, pairs, doc_store)
+        except Exception as e:
+            print(f"[API] ⚠️ Bilingual mapping failed (non-fatal): {e}")
+
     elapsed = time.time() - t_start
     doc["translated_md"] = translated_md
+    doc["tgt_lang"] = req.tgt_lang
     doc_store.update(req.doc_id, doc)
     evaluator.end_inference(req.doc_id)
 
@@ -538,6 +547,16 @@ async def hitl_update(req: HITLUpdateRequest):
             }]
         }]
         doc_store.update(req.doc_id, doc)
+
+        # ── Bước 6: keep bilingual mapping in sync ────────────
+        try:
+            apply_hitl_edit_to_mapping(
+                req.doc_id, req.page_idx, req.block_idx,
+                req.new_text, translated_middle, doc_store,
+            )
+        except Exception as e:
+            print(f"[API] ⚠️ Bilingual sync failed (non-fatal): {e}")
+
         print(f"[API] ✅ HITL update applied: page {req.page_idx}, block {req.block_idx}")
         return {"status": "success", "message": "Block updated"}
     except Exception as e:
@@ -579,6 +598,74 @@ async def get_hitl_blocks(doc_id: str):
                                 break
 
     return {"status": "success", "flagged_blocks": flagged_blocks, "total": len(flagged_blocks)}
+
+
+# ── Agent: Table Recovery (Bước 3) ─────────────────────────
+
+@app.post("/agent/table-recovery")
+async def agent_table_recovery(req: AgentRequest):
+    """
+    Scan translated_middle for untranslated blocks (missed table cells,
+    captions, graph labels) and patch them using the LLM.
+    Must be called AFTER /translate.
+    """
+    print(f"\n{'='*60}")
+    print(f"[API] /agent/table-recovery — doc_id={req.doc_id}")
+    t_start = time.time()
+
+    doc = doc_store.get(req.doc_id)
+    if not doc:
+        return {"status": "error", "message": "Document not found"}
+
+    original_middle = doc.get("middle_json")
+    translated_middle = doc.get("translated_middle")
+
+    if not original_middle or not translated_middle:
+        return {
+            "status": "error",
+            "message": "Run /translate first — both middle_json and translated_middle are required.",
+        }
+
+    try:
+        agent.set_llm_provider(req.llm_provider)
+        result = await asyncio.to_thread(
+            agent.recover_missing_translations, original_middle, translated_middle
+        )
+
+        # Persist updated translated_middle and refresh bilingual mapping
+        doc["translated_middle"] = translated_middle
+        doc_store.update(req.doc_id, doc)
+
+        if result["recovered_count"] > 0:
+            try:
+                tgt_lang = doc.get("tgt_lang", agent.target_lang)
+                pairs = build_bilingual_mapping(original_middle, translated_middle, tgt_lang)
+                save_bilingual_mapping(req.doc_id, pairs, doc_store)
+            except Exception as e:
+                print(f"[API] ⚠️ Bilingual refresh after recovery failed (non-fatal): {e}")
+
+        elapsed = time.time() - t_start
+        print(f"[API] ✅ Table recovery complete in {elapsed:.1f}s. "
+              f"recovered={result['recovered_count']}, skipped={result['skipped_count']}")
+        return {"status": "success", **result}
+    except Exception as e:
+        print(f"[API] ❌ Table recovery error: {e}")
+        traceback.print_exc()
+        return {"status": "error", "message": f"Table recovery failed: {e}"}
+
+
+# ── Bilingual mapping retrieval (Bước 6) ───────────────────
+
+@app.get("/bilingual/{doc_id}")
+async def get_bilingual_mapping(doc_id: str):
+    """Return the source↔translation paragraph pairs for a document."""
+    pairs = load_bilingual_mapping(doc_id, doc_store)
+    if pairs is None:
+        return JSONResponse(
+            {"status": "error", "message": "Bilingual mapping not found. Run /translate first."},
+            status_code=404,
+        )
+    return {"status": "success", "doc_id": doc_id, "count": len(pairs), "pairs": pairs}
 
 
 if __name__ == "__main__":
