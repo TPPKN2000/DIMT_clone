@@ -1,18 +1,20 @@
 """
 Streamlit Frontend — DIMT Document Translation Pipeline.
 
+Chạy riêng biệt với backend:
+  Terminal 1: uv run uvicorn src.backend.api:app --port 8000
+  Terminal 2: uv run streamlit run src/frontend/app.py
+
 Features:
 - Upload PDF → Extract via MinerU → Translate via NLLB
 - Optional "Human Check" mode: Q4 verification + HITL editing before translation
-- Rendered markdown preview + editable text area (notebook-style blocks)
-- Download translated PDF (rendered from layout.json + images)
+- Rendered markdown preview + editable text area
+- Download translated PDF
 - References tab: keyword WikiSearch links
-- Q6: Human-in-the-Loop (HITL) editable UI for flagged elements
 - User feedback with MLflow metrics logging
 """
 
-import subprocess
-import sys
+import base64
 import time
 import concurrent.futures
 import streamlit as st
@@ -20,13 +22,13 @@ import requests
 
 st.set_page_config(layout="wide", page_title="DIMT — Document Translation", page_icon="📄")
 
-API_BASE = "http://localhost:8000"
+# ── Backend URL — override via env var if needed ─────────────
+import os
+API_BASE = os.environ.get("DIMT_API_URL", "http://localhost:8000")
 
-# Generous timeout for long operations (translation can take minutes)
 LONG_TIMEOUT = 600  # 10 minutes
 
-# ── Language options ─────────────────────────────────────────────────
-# Order: Vietnamese first (primary target), then French, German
+# ── Language options ──────────────────────────────────────────
 LANG_OPTIONS = [
     "Vietnamese (vie_Latn)",
     "French (fra_Latn)",
@@ -35,32 +37,30 @@ LANG_OPTIONS = [
 
 LANG_CODE_MAP = {
     "Vietnamese (vie_Latn)": "vie_Latn",
-    "French (fra_Latn)": "fra_Latn",
-    "German (deu_Latn)": "deu_Latn",
+    "French (fra_Latn)":     "fra_Latn",
+    "German (deu_Latn)":     "deu_Latn",
 }
 
 
-# ── Backend startup (HF Spaces: only one process allowed) ───
-@st.cache_resource
-def start_backend():
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn",
-         "src.backend.api:app", "--host", "0.0.0.0", "--port", "8000"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    for _ in range(180):
-        try:
-            requests.get(f"{API_BASE}/docs", timeout=1)
-            return proc
-        except Exception:
-            time.sleep(1)
-    return proc
-
-start_backend()
+# ── Backend connectivity check ────────────────────────────────
+def _check_backend() -> bool:
+    try:
+        r = requests.get(f"{API_BASE}/docs", timeout=3)
+        return r.status_code == 200
+    except Exception:
+        return False
 
 st.title("📄 Document Intelligent Machine Translation")
 st.caption("PDF → MinerU extraction → NLLB translation → Translated PDF + Markdown")
+
+# ── Backend status banner ─────────────────────────────────────
+if not _check_backend():
+    st.error(
+        f"❌ Backend không kết nối được tại `{API_BASE}`. "
+        "Hãy chạy backend trước:\n\n"
+        "```bash\nuv run uvicorn src.backend.api:app --port 8000\n```"
+    )
+    st.stop()
 
 # ── Session State ───────────────────────────────────────────
 for key in ["doc_id", "original_markdown", "translated_markdown",
@@ -508,7 +508,6 @@ if st.session_state.translated_markdown is not None:
                     timeout=30,
                 )
                 if pdf_res.status_code == 200:
-                    import base64
                     pdf_bytes = pdf_res.content
 
                     st.divider()
