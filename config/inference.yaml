@@ -1,0 +1,14 @@
+nllb:
+  model_name: "facebook/nllb-200-distilled-1.3B"
+  adapter_path: "TQZinh/nllb-1.3B-ge-fr"
+  max_length: 512
+  num_beams: 4
+  src_lang: "eng_Latn"
+
+marianmt:
+  models:
+    fr: "TQZinh/MarianMT-en-fr"
+    de: "TQZinh/MarianMT-en-de"
+  max_new_tokens: 256
+  num_beams: 4
+  max_source_length: 256

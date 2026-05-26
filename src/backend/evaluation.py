@@ -13,10 +13,10 @@ load_dotenv()
 
 # Evidently AI for data/model drift monitoring
 try:
-    from evidently.report import Report
-    from evidently.metric_preset import DataDriftPreset
-    from evidently.ui.workspace.remote import RemoteWorkspace
     import pandas as pd
+    from evidently import DataDefinition, Dataset, Report
+    from evidently.presets import DataDriftPreset
+    from evidently.ui.workspace import CloudWorkspace
     EVIDENTLY_AVAILABLE = True
 except ImportError as e:
     EVIDENTLY_AVAILABLE = False
@@ -40,6 +40,29 @@ class Evaluator:
         self._lock = threading.Lock()
         # Q12: Evidently drift reference data
         self._translation_history = deque(maxlen=500)
+        self._evidently_min_samples = int(os.environ.get("EVIDENTLY_MIN_SAMPLES", "10"))
+
+    def _get_evidently_api_key(self) -> str | None:
+        """Read Evidently Cloud token, keeping the old project typo as a fallback."""
+        return (
+            os.environ.get("EVIDENTLY_API_KEY")
+            or os.environ.get("EVIDENTLY_TRACE_COLLECTOR_API_KEY")
+            or os.environ.get("EVIDENT_AI_API_KEY")
+        )
+
+    def _extract_dataset_drift(self, snapshot: object) -> bool:
+        """Evidently 0.7 returns a Snapshot, not the old report dict format."""
+        try:
+            result = snapshot.dict()
+            for metric in result.get("metrics", []):
+                if metric.get("metric_name", "").startswith("DriftedColumnsCount"):
+                    value = metric.get("value", {})
+                    share = float(value.get("share", 0.0))
+                    threshold = float(os.environ.get("EVIDENTLY_DRIFT_SHARE", "0.5"))
+                    return share >= threshold
+        except Exception:
+            pass
+        return False
 
     def start_inference(self, doc_id: str):
         self.runs[doc_id] = {"start_time": time.time()}
@@ -145,9 +168,46 @@ class Evaluator:
     def _check_drift(self) -> dict | None:
         """Q12: Evidently AI data drift detection on translation quality metrics."""
         if not EVIDENTLY_AVAILABLE:
-            return None
-        if len(self._translation_history) < 10:
-            return None
+            return {"drift_detected": False, "sample_count": 0, "message": "Evidently not installed"}
+
+        sample_count = len(self._translation_history)
+
+        # Always try to push latest snapshot to Evidently Cloud
+        api_key = self._get_evidently_api_key()
+        project_id = os.environ.get("EVIDENTLY_PROJECT_ID")
+
+        import warnings
+
+        if sample_count < self._evidently_min_samples:
+            # Push single-row snapshot for tracing even with few samples
+            if api_key and project_id and sample_count > 0:
+                try:
+                    latest = self._translation_history[-1]
+                    columns = ["edit_distance", "user_rating", "inference_time", "text_length"]
+                    df = pd.DataFrame([latest])
+                    data_definition = DataDefinition(numerical_columns=columns)
+                    current_ds = Dataset.from_pandas(df[columns], data_definition=data_definition)
+                    report = Report(metrics=[DataDriftPreset()])
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=RuntimeWarning)
+                        snapshot = report.run(current_ds, current_ds)
+
+                    workspace = CloudWorkspace(
+                        token=api_key,
+                        url=os.environ.get("EVIDENTLY_CLOUD_URL", "https://app.evidently.cloud"),
+                    )
+                    workspace.add_run(
+                        project_id,
+                        snapshot,
+                        include_data=False,
+                        name=f"translation_trace_{int(time.time())}",
+                    )
+                    print(f"[Eval] Trace snapshot pushed to Evidently Cloud (samples={sample_count})")
+                except Exception as cloud_err:
+                    print(f"[Eval] Failed to push trace to Evidently Cloud: {cloud_err}")
+
+            return {"drift_detected": False, "sample_count": sample_count,
+                    "message": f"Need {self._evidently_min_samples} samples for drift detection"}
 
         try:
             df = pd.DataFrame(list(self._translation_history))
@@ -155,32 +215,48 @@ class Evaluator:
             reference = df.iloc[:midpoint]
             current = df.iloc[midpoint:]
 
-            report = Report(metrics=[DataDriftPreset()])
-            report.run(
-                reference_data=reference[["edit_distance", "user_rating", "inference_time", "text_length"]],
-                current_data=current[["edit_distance", "user_rating", "inference_time", "text_length"]],
+            columns = ["edit_distance", "user_rating", "inference_time", "text_length"]
+            data_definition = DataDefinition(numerical_columns=columns)
+            reference_dataset = Dataset.from_pandas(
+                reference[columns],
+                data_definition=data_definition,
             )
-            result = report.as_dict()
-            drift_detected = result.get("metrics", [{}])[0].get("result", {}).get("dataset_drift", False)
+            current_dataset = Dataset.from_pandas(
+                current[columns],
+                data_definition=data_definition,
+            )
+
+            report = Report(metrics=[DataDriftPreset()])
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                snapshot = report.run(current_dataset, reference_dataset)
+            drift_detected = self._extract_dataset_drift(snapshot)
 
             # Cloud Integration
-            api_key = os.environ.get("EVIDENT_AI_API_KEY")
-            project_id = os.environ.get("EVIDENTLY_PROJECT_ID")
-
             if api_key and project_id:
                 try:
-                    workspace = RemoteWorkspace("https://cloud.evidentlyai.com", api_key=api_key)
-                    workspace.add_report(project_id, report)
-                    print(f"[Eval] Report pushed to Evidently Cloud (Project: {project_id})")
+                    workspace = CloudWorkspace(
+                        token=api_key,
+                        url=os.environ.get("EVIDENTLY_CLOUD_URL", "https://app.evidently.cloud"),
+                    )
+                    workspace.add_run(
+                        project_id,
+                        snapshot,
+                        include_data=False,
+                        name=f"translation_drift_{int(time.time())}",
+                    )
+                    print(f"[Eval] Snapshot pushed to Evidently Cloud (Project: {project_id})")
                 except Exception as cloud_err:
                     print(f"[Eval] Failed to push to Evidently Cloud: {cloud_err}")
 
+            os.makedirs("output", exist_ok=True)
+            snapshot.save_html("output/evidently_drift_report.html")
+
             if drift_detected:
-                print("[Eval] ⚠️ DATA DRIFT DETECTED — translation quality may have changed!")
-                # Save local fallback
-                report.save_html("output/evidently_drift_report.html")
+                print("[Eval] DATA DRIFT DETECTED - translation quality may have changed!")
 
             return {"drift_detected": drift_detected, "sample_count": len(df)}
         except Exception as e:
             print(f"[Eval] Evidently error: {e}")
-            return None
+            return {"drift_detected": False, "sample_count": sample_count, "error": str(e)}
+

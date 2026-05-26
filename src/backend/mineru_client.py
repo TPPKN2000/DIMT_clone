@@ -31,7 +31,7 @@ load_dotenv()
 class MinerUClient:
     BASE_URL = "https://mineru.net/api/v4"
 
-    def __init__(self, output_dir: str = "data"):
+    def __init__(self, output_dir: str = "temp"):
         self.token = os.environ.get("MINERU_API_KEY", "")
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
@@ -84,6 +84,48 @@ class MinerUClient:
             # Step 2 — PUT file to OSS
             with open(file_path, "rb") as f:
                 put_res = requests.put(upload_urls[0], data=f, timeout=120)
+            if put_res.status_code not in (200, 201):
+                return {"status": "error", "message": f"Upload failed: HTTP {put_res.status_code}"}
+
+            # Step 3 — poll batch results
+            return self._poll_batch(batch_id)
+
+        except requests.RequestException as e:
+            return {"status": "error", "message": f"Network error: {e}"}
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=2, max=60),
+        retry=retry_if_exception_type(requests.exceptions.RequestException),
+        reraise=True,
+    )
+    def extract_from_bytes(self, file_bytes: bytes, filename: str, model_version: str = "vlm") -> dict:
+        """Upload a file via signed-URL flow from memory and extract."""
+        stem = Path(filename).stem
+        data = {
+            "files": [{"name": filename, "data_id": stem}],
+            "model_version": model_version,
+        }
+        try:
+            res = requests.post(
+                f"{self.BASE_URL}/file-urls/batch",
+                headers=self.headers,
+                json=data,
+                timeout=30,
+            )
+            if res.status_code == 429:
+                print("[MinerU] Rate limit hit (429). Retrying...")
+                raise requests.exceptions.RequestException("Rate limit exceeded")
+            res.raise_for_status()
+            result = res.json()
+            if result.get("code") != 0:
+                return {"status": "error", "message": result.get("msg", "Unknown")}
+
+            batch_id = result["data"]["batch_id"]
+            upload_urls = result["data"]["file_urls"]
+
+            # Step 2 — PUT file to OSS using bytes directly
+            put_res = requests.put(upload_urls[0], data=file_bytes, timeout=120)
             if put_res.status_code not in (200, 201):
                 return {"status": "error", "message": f"Upload failed: HTTP {put_res.status_code}"}
 

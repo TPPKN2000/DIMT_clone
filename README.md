@@ -1,137 +1,147 @@
----
-title: DIMT - Document Intelligent Machine Translation
-emoji: 📄
-colorFrom: blue
-colorTo: green
-sdk: streamlit
-sdk_version: 1.57.0
-app_file: src/frontend/app.py
-pinned: false
----
 # DIMT — Document Intelligent Machine Translation
 
-> Production pipeline for translating academic PDF documents (English → Vietnamese) with layout-preserving PDF reconstruction.
+> **DIMT** là hệ thống dịch thuật tài liệu học thuật và hình ảnh chuyên nghiệp (Anh → Việt, Pháp, Đức,...), bảo toàn hoàn hảo định dạng tài liệu gốc và tái cấu trúc tệp PDF đầu ra với công thức toán học sắc nét nhờ sự kết hợp giữa mô hình dịch máy NLLB, LoRA adapter và tác vụ kiểm định chất lượng bằng AI Agent.
 
-## Architecture
+---
+## 💻 Yêu cầu Hệ thống (Local Setup)
+| Thành phần | Yêu cầu tối thiểu | Khuyến nghị |
+|---|---|---|
+| **CPU** | 4 cores (Intel Core i5 / AMD Ryzen 5) | 8 cores trở lên |
+| **RAM** | 8 GB | 16 GB trở lên |
+| **GPU** | Không bắt buộc (Chạy bằng CPU) hoặc GPU NVIDIA 4 GB VRAM | NVIDIA 6 GB - 8 GB VRAM trở lên |
+| **Disk** | 15 GB trống | 30 GB SSD |
+| **OS** | Windows 10/11 hoặc Ubuntu 20.04/22.04 LTS | Windows 10/11 hoặc Ubuntu |
+---
 
-```
-Input PDF ──→ MinerU API ──→ ZIP (md + middle.json + images/)
-                                    │
-                    ┌───────────────┤
-                    ▼               ▼
-              para_blocks      equation images
-              merge lines      (interline_eq)
-              into paragraphs
-                    │
-                    ▼
-              NLLB-1.3B (LoRA)
-              paragraph-level
-              translation
-                    │
-              ┌─────┴─────┐
-              ▼            ▼
-        translated.md   translated.pdf
-                          (images for equations,
-                           translated tables)
-                    │
-                    ▼
-              AI Agent (Gemma-4-31B-it)
-              ├── Q4 score verification
-              ├── keyword extraction
-              └── WikiSearch URLs (Vietnamese)
-```
+## ⚙️ Hướng dẫn Thiết lập Môi trường (Local)
 
-## Setup & Installation
- 
-1. **Install Dependencies (including Torch CUDA 11.8)**:
+### Bước 1: Cài đặt Node.js & uv
+1. Tải và cài đặt Node.js từ trang chủ [Node.js](https://nodejs.org/).
+2. Cài đặt `uv`:
+   * **Windows (PowerShell):**
+     ```powershell
+     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+     ```
+   * **Linux/macOS:**
+     ```bash
+     curl -LsSf https://astral.sh/uv/install.sh | sh
+     source $HOME/.cargo/env
+     ```
+
+### Bước 2: Đồng bộ thư viện Python & Node.js
+Di chuyển vào thư mục dự án và thực hiện cài đặt:
 ```bash
+git clone https://github.com/zinhcandoit/DocImg-Translate.git
+cd DocImg-Translate
+
+# Đồng bộ thư viện Python (tự động tạo môi trường ảo .venv và tải đúng phiên bản)
 uv sync
+
+# Cài đặt thư viện Node.js để chạy công cụ dịch toán học MathJax
+npm install
 ```
 
-2. **Configure Environment Variables**:
-   Create a `.env` file in the root directory with your API keys:
-   ```ini
-   MINERU_API_KEY=your_mineru_api_key
-   GEMMA_4_API_KEY=your_gemma_api_key
-   GEMINI_API_KEY=your_gemini_api_key
-   ```
-
-3. **NLLB Model**: Ensure the fine-tuned adapter is located at `nllb-1.3B-final/` (local directory)
-
-## How to Run
-
-1. **Start the FastAPI Backend**:
+### Bước 3: Cấu hình biến môi trường (`.env`)
+Tạo tệp `.env` tại thư mục gốc của dự án:
 ```bash
-uv run uvicorn src.backend.api:app --port 8000
+cp .env.example .env
 ```
-*(Lưu ý: Quá trình khởi động sẽ mất vài phút để nạp Model NLLB. Bạn sẽ thấy thông báo trạng thái của MinerU API trước khi NLLB bắt đầu nạp).*
+Điền đầy đủ các thông tin cấu hình vào file `.env`:
+```ini
+# --- MinerU API Key ---
+MINERU_API_KEY=your_mineru_api_key_here
 
-2. **Start the Streamlit Frontend**:
-   Mở một terminal mới (nhớ kích hoạt môi trường `.venv` nếu không dùng `uv run`):
+# --- LLM Agent Keys ---
+GEMINI_API_KEY=AIzaSy_your_gemini_key_here
+GPT_API_KEY="your_nvidia_api_key"
+
+# --- MongoDB Configuration ---
+# Để trống sẽ tự động fallback sang lưu trữ In-Memory tạm thời trên RAM
+MONGODB_URL=mongodb://localhost:27017
+
+# --- Latex Rendering Backend ---
+# Hỗ trợ: 'mathtext', 'mathjax', hoặc 'tectonic'
+LATEX_BACKEND=mathjax
+
+# --- Evidently AI Cloud (Tùy chọn) ---
+EVIDENT_AI_API_KEY=ev_your_key_here
+EVIDENTLY_PROJECT_ID=your_project_uuid_here
+
+# --- Hugging Face Cache ---
+HF_HOME=./.cache/huggingface
+```
+
+---
+
+## 🤖 Cơ chế tải mô hình Dịch máy (NLLB & MarianMT)
+
+Hệ thống sử dụng các mô hình dịch máy từ HuggingFace Hub được cấu hình sẵn trong tệp `config/inference.yaml`.
+- **NLLB-200**: Sử dụng mô hình nền `facebook/nllb-200-distilled-1.3B` kết hợp với LoRA Adapter `TQZinh/nllb-1.3B-ge-fr`.
+- **MarianMT**: Sử dụng mô hình `TQZinh/MarianMT-en-fr` (dịch tiếng Pháp) và `TQZinh/MarianMT-en-de` (dịch tiếng Đức).
+---
+
+## 🚀 Hướng dẫn Vận hành bằng Terminal (Local)
+
+Để chạy hệ thống trên máy cá nhân, hãy mở **3 cửa sổ Terminal** riêng biệt:
+
+### Terminal 1: FastAPI Backend
+Chịu trách nhiệm xử lý các tác vụ dịch, OCR, render PDF, kết nối cơ sở dữ liệu và quản lý VRAM.
 ```bash
-uv run streamlit run src/frontend/app.py
+uv run uvicorn src.backend.api:app --host 127.0.0.1 --port 8000
 ```
 
-3. **Monitor MLflow Metrics** (optional):
+### Terminal 2: Streamlit Frontend
+Cung cấp giao diện đồ họa tương tác cho người dùng.
 ```bash
-uv run mlflow ui --port 5000
+uv run streamlit run src/frontend/app.py --server.port 8501
 ```
+*   **Giao diện ứng dụng:** Truy cập tại [http://127.0.0.1:8501](http://127.0.0.1:8501).
 
-## Pipeline Steps
+### Terminal 3: MLflow Dashboard (Tùy chọn)
+Dùng để giám sát hiệu suất dịch máy và đánh giá mô hình.
+```bash
+uv run mlflow ui --port 5000 --backend-store-uri sqlite:///mlruns.db
+```
+*   **MLflow UI:** Truy cập tại [http://127.0.0.1:5000](http://127.0.0.1:5000).
 
-### Step 1: PDF Extraction (MinerU API)
-- Upload PDF → MinerU Precision API (`/api/v4/file-urls/batch`)
-- Async polling until `state: "done"` → download ZIP
-- ZIP contains: `.md`, `layout.json`, `images/` (equation renders)
-- Rate limits: 50 files/min, 1000 polls/min, ≤200 pages, ≤200MB
-- **Fallback**: local mock data in `data/` for demo
+---
 
-### Step 2: Translation (NLLB-1.3B + LoRA)
-- Parses `para_blocks` from `layout.json` (pre-grouped paragraphs)
-- Respects `merge_prev` flag to concatenate continuation blocks
-- Protects inline equations with `[EQ_n]` placeholders
-- Translates at paragraph level (not line-by-line) for better context
-- Tables: extracts text from HTML cells, translates, reconstructs
+## 💡 Các Tính năng Nổi bật của DIMT
 
-### Step 3: PDF Reconstruction (PyMuPDF)
-- Creates new PDF with same page dimensions as original
-- **Equations**: rendered as IMAGES from `images/` folder (not LaTeX)
-- **Tables**: exception — translated text rendered as table grid
-- **Text/title**: Vietnamese text placed at original bounding boxes
-- Supports Vietnamese diacritics via system TrueType fonts
+1.  **Dịch máy Paragraph-level bảo toàn công thức**: Hệ thống tự động gộp các dòng văn bản bị cắt nhỏ thành đoạn văn hoàn chỉnh trước khi dịch, đồng thời cô lập các khối toán học dạng `$ ... $` hoặc `$$ ... $$` dưới dạng token giữ chỗ để tránh làm sai lệch cấu trúc công thức khi dịch.
+2.  **Tối ưu hóa VRAM thông minh theo dung lượng trống (Available VRAM)**: Trình dịch MarianMT sẽ liên tục giám sát lượng VRAM trống thực tế trên GPU để tự động điều chỉnh kích thước batch (Batch size từ 1 đến 32), giúp các máy tính cấu hình yếu (ví dụ: GPU 4GB VRAM) vẫn có thể dịch các văn bản lớn mà không bao giờ bị tràn bộ nhớ (Out-Of-Memory).
+3.  **Lịch sử Dịch thuật đồng bộ kép (Saved History)**: Người dùng có thể quản lý lịch sử dịch lên đến 10 tài liệu gần nhất trên sidebar dựa theo nguyên tắc FIFO (tự động loại bỏ tài liệu cũ nhất khi vượt ngưỡng 10). Giao diện lịch sử hiển thị 2 tab kết quả đồng bộ 100% với phiên dịch chính gồm: **Tải xuống (Downloads)** và **Từ khóa (Keywords)** nhờ kiến trúc lưu trữ MongoDB tách biệt hai collections (`documents` và `agent_metadata`).
+4.  **Tự động chuyển đổi mượt mà**: Nếu người dùng đang xem một tài liệu cũ trong Saved History nhưng bấm nút Convert tài liệu mới, hệ thống sẽ tự động kích hoạt chế độ quay lại danh sách lịch sử (Return to History List) trước khi thực thi tiến trình mới để tránh xung đột giao diện.
+5.  **Q4 Verification & Agentic Helpers**:
+    *   **Q4 Verification**: Hiển thị song song bản dịch gốc kèm theo nội dung văn bản hoàn chỉnh đã trích xuất giúp người dùng dễ dàng so sánh đối chiếu và tinh chỉnh.
+    *   **Keyword Extraction**: Tự động trích xuất các từ khóa chuyên ngành chính từ tài liệu.
+    *   **Table Recovery**: Khôi phục lại bố cục bảng biểu phức tạp.
+6.  **Tự động dọn dẹp thư mục tạm (`temp/`)**: Dữ liệu tải lên và các tệp trung gian từ MinerU API được lưu trữ trong thư mục `temp/` thay vì `data/`, và sẽ tự động được xóa sạch ngay khi tệp PDF dịch được kết xuất thành công để tiết kiệm không gian đĩa cứng máy chủ.
 
-### Step 4: AI Agent (Gemma-4-31B-it)
-- **Q4 Verification**: Identifies spans with scores in the bottom 25th percentile (Q4 quartile) from `layout.json`, uses LLM to verify OCR quality
-- **Keyword Extraction**: Parses `Keywords:` from abstract section
-- **WikiSearch**: Generates Vietnamese Wikipedia URLs for each keyword
+---
 
-## Usage
+## 📋 Tham chiếu nhanh
 
-1. In the Streamlit UI, upload a PDF document
-2. Click **Convert** — extracts, translates, and renders the PDF
-3. Preview the translated markdown in the **Translated Markdown** tab
-4. Edit text in the **Editable Text** tab if needed
-5. Click **Run Agent Analysis** to see Q4 verification and keyword references
-6. Download translated `.md` and `.pdf` from the **Downloads** tab
-7. Rate the output and submit feedback (logged to MLflow)
+### Các tệp cấu hình quan trọng:
+| Đường dẫn tệp/thư mục | Vai trò / Nhiệm vụ |
+|---|---|
+| `.env` | Chứa tất cả thông tin bảo mật, API key và địa chỉ kết nối Database |
+| `config/inference.yaml` | Chứa thông tin cấu hình và đường dẫn tải các mô hình dịch máy từ HuggingFace Hub |
+| `temp/` | Thư mục lưu trữ tạm thời các file tải lên và kết quả trung gian (sẽ tự động dọn dẹp) |
+| `output/` | Nơi lưu trữ các file PDF và tài liệu sau khi dịch hoàn tất |
 
-## Key Files
+### Các cổng mạng mặc định:
+| Dịch vụ | Cổng mặc định | URL cục bộ |
+|---|---|---|
+| **FastAPI backend** | `8000` | [http://localhost:8000/docs](http://localhost:8000/docs) |
+| **Streamlit frontend** | `8501` | [http://localhost:8501](http://localhost:8501) |
+| **MLflow UI** | `5000` | [http://localhost:5000](http://localhost:5000) |
+| **MongoDB** | `27017` | `mongodb://localhost:27017` |
 
-| File | Purpose |
-|------|---------|
-| `src/backend/mineru_client.py` | MinerU API client (real + mock fallback) |
-| `src/backend/nllb_service.py` | NLLB translation with paragraph merging |
-| `src/backend/agent.py` | AI Agent (Q4 verify, keywords, WikiSearch) |
-| `src/backend/pdf_renderer.py` | PDF reconstruction via PyMuPDF |
-| `src/backend/api.py` | FastAPI endpoint orchestrator |
-| `src/frontend/app.py` | Streamlit UI |
-| `src/backend/evaluation.py` | MLflow metrics logger |
+---
 
-## Data Files (from MinerU)
+## 🌐 Triển khai Production & Troubleshooting
 
-| File | Purpose |
-|------|---------|
-| `full.md` | Final Markdown rendering of the entire document (flat text with LaTeX math, tables as HTML) |
-| `layout.json` | Rich hierarchical structure with bboxes, spans, images|
-| `content_list.json` | Flat content list in reading order |
-| `images/` | Equation/table renders (JPG, SHA-256 filenames) |
+Đối với các yêu cầu triển khai hệ thống trên server (Ubuntu/Linux Server), cấu hình các dịch vụ chạy ngầm với **Systemd**, thiết lập Nginx Reverse Proxy (HTTPS / SSL), hoặc xử lý các sự cố thường gặp (CUDA Out of memory, MinerU Rate limits,...), vui lòng xem:
+
+👉 **DEPLOYMENT.md**
